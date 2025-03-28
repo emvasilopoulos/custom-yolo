@@ -7,6 +7,14 @@ class InvalidBoundingBoxError(Exception):
 
 @dataclasses.dataclass
 class Bbox:
+    """
+    x: x coordinate of the top left corner of the bounding box
+    y: y coordinate of the top left corner of the bounding box
+    w: width of the bounding box
+    h: height of the bounding box
+    is_normalized: whether the bounding box is normalized or not
+    """
+
     x: float
     y: float
     w: float
