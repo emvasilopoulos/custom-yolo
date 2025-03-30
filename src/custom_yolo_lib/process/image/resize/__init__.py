@@ -8,6 +8,10 @@ import custom_yolo_lib.process.image.pad
 
 
 def resize_image(x: torch.Tensor, new_height: int, new_width: int) -> torch.Tensor:
+    if len(x.shape) < 3 or len(x.shape) > 4:
+        raise ValueError(
+            f"Input tensor must have 3 (HWC) or 4 (NCHW) dimensions, but got {len(x.shape)}."
+        )
     has_batch_dimension = len(x.shape) == 4
     if not has_batch_dimension:
         x = x.unsqueeze(0)

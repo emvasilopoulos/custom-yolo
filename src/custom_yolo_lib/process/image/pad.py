@@ -1,4 +1,39 @@
+import dataclasses
 import torch
+
+
+@dataclasses.dataclass
+class Padding:
+    top: int
+    right: int
+    bottom: int
+    left: int
+    pad_value: int
+
+
+def pad_image_v2(
+    x: torch.Tensor,
+    pad_top: int,
+    pad_right: int,
+    pad_bottom: int,
+    pad_left: int,
+    pad_value: int = 0,
+) -> torch.Tensor:
+    return torch.nn.functional.pad(
+        x, (pad_left, pad_right, pad_top, pad_bottom), mode="constant", value=pad_value
+    )
+
+
+def pad_image_v3(
+    x: torch.Tensor,
+    padding: Padding,
+) -> torch.Tensor:
+    return torch.nn.functional.pad(
+        x,
+        (padding.left, padding.right, padding.top, padding.bottom),
+        mode="constant",
+        value=padding.pad_value,
+    )
 
 
 def pad_image(
