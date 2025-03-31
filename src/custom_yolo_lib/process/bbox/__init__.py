@@ -39,8 +39,7 @@ class Bbox:
                 f"Non-normalized bounding box values should be less than 1 for bbox: {self}"
             )
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __post_init__(self):
 
         self._assert_positive()
         if self.is_normalized:
