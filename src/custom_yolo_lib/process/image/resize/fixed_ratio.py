@@ -195,9 +195,6 @@ def resize_image(
         some padding should be applied which is calculated automatically. The 'padding_percent' is the percentage of the total calculated
         padding that should be applied at the start (top or left) of the image.
     """
-    if padding_percent < 0 or padding_percent > 1:
-        raise ValueError("The padding_percent should be between 0 and 1")
-
     resize_fixed_ratio_components = ResizeFixedRatioComponents_v2(
         current_image_size=custom_yolo_lib.image_size.ImageSize(
             width=x.shape[2], height=x.shape[1]
@@ -206,8 +203,36 @@ def resize_image(
             width=new_width, height=new_height
         ),
     )
-    resize_image, padding = resize_fixed_ratio_components.get_translation_components(
-        padding_percent, pad_value=padding_value
+
+    return resize_image_with_ready_components(
+        x,
+        fixed_ratio_components=resize_fixed_ratio_components,
+        padding_percent=padding_percent,
+        pad_value=padding_value,
+    )
+
+
+def resize_image_with_ready_components(
+    x: torch.Tensor,
+    fixed_ratio_components: ResizeFixedRatioComponents_v2,
+    padding_percent: float,
+    pad_value: int,
+) -> torch.Tensor:
+    """
+    Resize the image to the new height and width.
+
+    Args:
+        x: The image tensor to resize.
+        fixed_ratio_components: The fixed ratio components to use for resizing.
+        padding_percent: considering the new image should have new_width and new_height, in order to preserve the aspect ratio
+        some padding should be applied which is calculated automatically. The 'padding_percent' is the percentage of the total calculated
+        padding that should be applied at the start (top or left) of the image.
+    """
+    if padding_percent < 0 or padding_percent > 1:
+        raise ValueError("The padding_percent should be between 0 and 1")
+
+    resize_image, padding = fixed_ratio_components.get_translation_components(
+        padding_percent, pad_value=pad_value
     )
     x = custom_yolo_lib.process.image.resize.resize_image(
         x,
@@ -221,7 +246,7 @@ def resize_image(
         padding.right,
         padding.bottom,
         padding.left,
-        pad_value=padding_value,
+        pad_value=pad_value,
     )
 
 

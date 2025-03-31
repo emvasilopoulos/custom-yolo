@@ -1,5 +1,7 @@
 import dataclasses
 
+import torch
+
 
 class InvalidBoundingBoxError(Exception):
     pass
@@ -46,3 +48,12 @@ class Bbox:
             self._assert_is_valid_normalized()
         else:
             self._assert_is_valid_non_normalized()
+
+
+def bboxes_to_tensor(bboxes: list[Bbox]) -> torch.Tensor:
+    """
+    Convert a list of Bbox objects to a tensor.
+    """
+    return torch.tensor(
+        [[bbox.x, bbox.y, bbox.w, bbox.h] for bbox in bboxes], dtype=torch.float32
+    )

@@ -2,13 +2,32 @@ import abc
 import pathlib
 import random
 from typing import Any, Dict, List, Tuple
+import enum
+
 import torch
 
+import custom_yolo_lib.dataset.coco.tasks.utils
 import custom_yolo_lib.io.read
 import custom_yolo_lib.image_size
+import custom_yolo_lib.process.bbox
+import custom_yolo_lib.process.bbox.translate
 import custom_yolo_lib.process.image
+import custom_yolo_lib.process.image.pipeline
+import custom_yolo_lib.process.image.resize
+import custom_yolo_lib.process.image.resize.fixed_ratio
 import custom_yolo_lib.process.normalize
 import custom_yolo_lib.process.tensor
+
+
+class COCOYear(enum.Enum):
+    YEAR_2014 = 2014
+    YEAR_2017 = 2017
+
+
+class COCOType(enum.Enum):
+    INSTANCES = enum.auto()
+    CAPTIONS = enum.auto()
+    PERSON_KEYPOINTS = enum.auto()
 
 
 class BaseCOCODatasetGrouped(torch.utils.data.Dataset):
@@ -32,9 +51,7 @@ class BaseCOCODatasetGrouped(torch.utils.data.Dataset):
         pass
 
     @abc.abstractmethod
-    def _read_annotations(
-        self, annotations_dir: pathlib.Path, coco_type: str, split: str, year: str
-    ):
+    def _read_annotations(self, annotations_path: pathlib.Path) -> None:
         pass
 
     @abc.abstractmethod
@@ -67,14 +84,21 @@ class BaseCOCODatasetGrouped(torch.utils.data.Dataset):
 
         self.desired_classes = classes
 
-        self.input_pipeline = custom_yolo_lib.process.image.ImagePipeline(
+        self.input_pipeline = custom_yolo_lib.process.image.pipeline.ImagePipeline(
             dtype_converter=custom_yolo_lib.process.tensor.TensorDtypeConverter(
                 torch.float32
             ),
             normalize=custom_yolo_lib.process.normalize.SimpleImageNormalizer(),
         )
 
-        self._read_annotations(annotations_dir, coco_type, split, year)
+        annotations_path = (
+            annotations_dir
+            / custom_yolo_lib.dataset.coco.tasks.utils.get_task_file(
+                coco_type, split, str(year)
+            )
+        )
+
+        self._read_annotations(annotations_path)
 
     def _read_image(self, image_id: int) -> torch.Tensor:
         filename = self._image_file_name_from_id(image_id)
@@ -99,17 +123,45 @@ class BaseCOCODatasetGrouped(torch.utils.data.Dataset):
             return random.random() * 0.14 + 0.86
 
     @abc.abstractmethod
-    def _get_coco_item(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
+    def _get_coco_item(
+        self, idx: int
+    ) -> Tuple[torch.Tensor, List[custom_yolo_lib.process.bbox.Bbox]]:
         pass
 
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
-        self._get_coco_item(idx)
+        img_tensor, bboxes = self._get_coco_item(idx)
+        padding_percent = self._random_percentage()
+        resize_fixed_ratio_components = custom_yolo_lib.process.image.resize.fixed_ratio.ResizeFixedRatioComponents_v2(
+            current_image_size=custom_yolo_lib.image_size.ImageSize(
+                width=img_tensor.shape[2], height=img_tensor.shape[1]
+            ),
+            expected_image_size=self.expected_image_size,
+        )
+        standard_resized_img_tensor = custom_yolo_lib.process.image.resize.fixed_ratio.resize_image_with_ready_components(
+            img_tensor=img_tensor,
+            resize_fixed_ratio_components=resize_fixed_ratio_components,
+            padding_percent=padding_percent,
+            pad_value=random.randint(0, 255),
+        )
+
+        resize_components, padding = (
+            resize_fixed_ratio_components.get_translation_components()
+        )
+
+        translated_bboxes = [
+            custom_yolo_lib.process.bbox.translate.translate_bbox_to_resized_image(
+                bbox=bbox,
+                resize_components=resize_components,
+                padding=padding,
+            )
+            for bbox in bboxes
+        ]
 
 
 class COCODatasetInstances2017(BaseCOCODatasetGrouped):
 
     def get_year(self) -> int:
-        return 2017
+        return COCOYear.YEAR_2017.value
 
     def get_type(self) -> str:
-        return "instances"
+        return COCOType.INSTANCES.name.lower()
