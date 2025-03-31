@@ -2,7 +2,69 @@ from typing import Tuple
 
 import custom_yolo_lib.image_size
 import custom_yolo_lib.process.bbox
+import custom_yolo_lib.process.image.pad
 import custom_yolo_lib.process.image.resize.fixed_ratio
+
+
+def translate_bbox_to_resized_image(
+    bbox: custom_yolo_lib.process.bbox.Bbox,
+    resize_components: custom_yolo_lib.process.image.resize.ResizeImageSize,
+    padding: custom_yolo_lib.process.image.pad.Padding,
+) -> custom_yolo_lib.process.bbox.Bbox:
+    """
+    Supposedly, first you do resizing, then you do padding when you transform an image shape. This translates the bounding box
+    in the same regard. The bounding box is first translated to the resized image, then to the padded image.
+
+    Args:
+        bbox (custom_yolo_lib.process.bbox.Bbox): _description_
+        resize_components (custom_yolo_lib.process.image.resize.ResizeImageSize): _description_
+        padding (custom_yolo_lib.process.image.pad.Padding): _description_
+
+    Returns:
+        _type_: _description_
+    """
+    if not (padding.top or padding.right or padding.bottom or padding.left):
+        raise ValueError(
+            "Padding values should be positive. Otherwise, no use of using this function"
+        )
+    new_width = (
+        resize_components.resized_image_size.width + padding.left + padding.right
+    )
+    # px = padding.left / new_width
+    new_height = (
+        resize_components.resized_image_size.height + padding.top + padding.bottom
+    )
+    # py = padding.top / new_height
+    if bbox.is_normalized:
+        x_norm = (
+            (bbox.x * resize_components.resized_image_size.width) + padding.left
+        ) / new_width
+        y_norm = (
+            (bbox.y * resize_components.resized_image_size.height) + padding.top
+        ) / new_height
+        w_norm = (bbox.w * resize_components.resized_image_size.width) / new_width
+        h_norm = (bbox.h * resize_components.resized_image_size.height) / new_height
+        return custom_yolo_lib.process.bbox.Bbox(
+            x=x_norm,
+            y=y_norm,
+            w=w_norm,
+            h=h_norm,
+            is_normalized=True,
+        )
+    else:
+        x_norm = bbox.x / resize_components.current_image_size.width
+        y_norm = bbox.y / resize_components.current_image_size.height
+        w0_norm = bbox.w / resize_components.current_image_size.width
+        h0_norm = bbox.h / resize_components.current_image_size.height
+        w_norm = (w0_norm * resize_components.resized_image_size.width) / new_width
+        h_norm = (h0_norm * resize_components.resized_image_size.height) / new_height
+        return custom_yolo_lib.process.bbox.Bbox(
+            x=x_norm * new_width,
+            y=y_norm * new_height,
+            w=w_norm * new_width,
+            h=h_norm * new_height,
+            is_normalized=False,
+        )
 
 
 def translate_bbox_to_padded_image(
@@ -10,7 +72,7 @@ def translate_bbox_to_padded_image(
     fixed_ratio_components: custom_yolo_lib.process.image.resize.fixed_ratio.ResizeFixedRatioComponents,
     padding_percentage: float,
     image_size: custom_yolo_lib.image_size.ImageSize,
-):
+) -> Tuple[int, int, int, int]:
     if bbox.is_normalized:
         return __translate_norm_bbox_to_padded_image(
             (bbox.x, bbox.y, bbox.w, bbox.h),
