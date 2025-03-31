@@ -114,18 +114,43 @@ def _calculate_new_tensor_dimensions_v2(
 
 
 @dataclasses.dataclass
-class ResizeFixedRatioComponents_v2(
-    custom_yolo_lib.process.image.resize.ResizeImageSize
-):
+class ResizeFixedRatioComponents_v2:
+    current_image_size: custom_yolo_lib.image_size.ImageSize
+    expected_image_size: custom_yolo_lib.image_size.ImageSize
 
     def __post_init__(self):
         resize_h, resize_w, pad_y, pad_x = _calculate_new_tensor_dimensions_v2(
-            self.current_image_size, self.resized_image_size
+            self.current_image_size, self.expected_image_size
         )
         self.resize_height = resize_h
         self.resize_width = resize_w
         self.pad_y = pad_y
         self.pad_x = pad_x
+
+    def get_translation_components(
+        self, padding_percent: float, pad_value: int
+    ) -> Tuple[
+        custom_yolo_lib.process.image.resize.ResizeImageSize,
+        custom_yolo_lib.process.image.pad.Padding,
+    ]:
+        pad_top = int(self.pad_y * padding_percent)
+        pad_bottom = self.pad_y - pad_top
+        pad_left = int(self.pad_x * padding_percent)
+        pad_right = self.pad_x - pad_left
+        padding = custom_yolo_lib.process.image.pad.Padding(
+            top=pad_top,
+            right=pad_right,
+            bottom=pad_bottom,
+            left=pad_left,
+            pad_value=pad_value,
+        )
+        resize_image = custom_yolo_lib.process.image.resize.ResizeImageSize(
+            current_image_size=self.current_image_size,
+            resized_image_size=custom_yolo_lib.image_size.ImageSize(
+                width=self.resize_width, height=self.resize_height
+            ),
+        )
+        return resize_image, padding
 
 
 @dataclasses.dataclass
@@ -177,26 +202,25 @@ def resize_image(
         current_image_size=custom_yolo_lib.image_size.ImageSize(
             width=x.shape[2], height=x.shape[1]
         ),
-        resized_image_size=custom_yolo_lib.image_size.ImageSize(
+        expected_image_size=custom_yolo_lib.image_size.ImageSize(
             width=new_width, height=new_height
         ),
     )
+    resize_image, padding = resize_fixed_ratio_components.get_translation_components(
+        padding_percent, pad_value=padding_value
+    )
     x = custom_yolo_lib.process.image.resize.resize_image(
         x,
-        resize_fixed_ratio_components.resize_height,
-        resize_fixed_ratio_components.resize_width,
+        resize_image.resized_image_size.height,
+        resize_image.resized_image_size.width,
     )
 
-    pad_top = int(resize_fixed_ratio_components.pad_y * padding_percent)
-    pad_bottom = resize_fixed_ratio_components.pad_y - pad_top
-    pad_left = int(resize_fixed_ratio_components.pad_x * padding_percent)
-    pad_right = resize_fixed_ratio_components.pad_x - pad_left
     return custom_yolo_lib.process.image.pad.pad_image_v2(
         x,
-        pad_top,
-        pad_right,
-        pad_bottom,
-        pad_left,
+        padding.top,
+        padding.right,
+        padding.bottom,
+        padding.left,
         pad_value=padding_value,
     )
 
