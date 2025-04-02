@@ -28,11 +28,6 @@ def parse_args() -> Tuple[bool, bool, bool, pathlib.Path]:
         action="store_true",
         help="Download the annotations (both training & validation)",
     )
-    parser.add_argument(
-        "-all",
-        action="store_true",
-        help="Download all datasets",
-    )
     args = parser.parse_args()
     return args.train, args.val, args.annotations, pathlib.Path(args.save_dir)
 
