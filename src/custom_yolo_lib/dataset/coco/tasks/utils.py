@@ -1,10 +1,14 @@
+import enum
 import torch
 import custom_yolo_lib.dataset
 import custom_yolo_lib.dataset.object
 import custom_yolo_lib.process.bbox
 
+class AnnotationsType(enum.Enum):
+    json = "json"
+    csv = "csv"
 
-def get_task_file(task_name: str, split: str, year: str) -> str:
+def get_task_file(task_name: str, split: str, year: str, is_grouped: bool, filetype: AnnotationsType) -> str:
     """
     Get the task file path based on the task name, split, and year.
 
@@ -16,7 +20,9 @@ def get_task_file(task_name: str, split: str, year: str) -> str:
     Returns:
         str: The path to the task file.
     """
-    return f"{task_name}_{split}{year}.json"
+    if is_grouped:
+        return f"{task_name}_{split}{year}_grouped_by_image_id.{filetype.value}"
+    return f"{task_name}_{split}{year}.{filetype.value}"
 
 
 def create_empty_coco_object_tensor(
@@ -24,8 +30,6 @@ def create_empty_coco_object_tensor(
     n_objects: int = 1,
     dtype: torch.dtype = torch.float32,
     device: torch.device = torch.device("cpu"),
-    pin_memory: bool = False,
-    non_blocking: bool = False,
 ) -> torch.Tensor:
     """
     Create an empty COCO tensor.
@@ -46,9 +50,13 @@ def create_empty_coco_object_tensor(
             device=device,
             dtype=dtype,
             requires_grad=False,
-            pin_memory=pin_memory,
-            non_blocking=non_blocking,
         )
+    return torch.zeros(
+        vector_size,
+        device=device,
+        dtype=dtype,
+        requires_grad=False,
+    )        
 
 
 def object_to_tensor(
@@ -56,8 +64,6 @@ def object_to_tensor(
     n_coco_classes: int = 80,
     dtype: torch.dtype = torch.float32,
     device: torch.device = torch.device("cpu"),
-    pin_memory: bool = False,
-    non_blocking: bool = False,
 ) -> torch.Tensor:
     """
     Convert a bounding box to a tensor.
@@ -80,8 +86,6 @@ def object_to_tensor(
         n_objects=1,
         dtype=dtype,
         device=device,
-        pin_memory=pin_memory,
-        non_blocking=non_blocking,
     )
 
     x[0] = object_.bbox.x
@@ -89,5 +93,5 @@ def object_to_tensor(
     x[2] = object_.bbox.w
     x[3] = object_.bbox.h
     x[4] = 1.0  # objectness
-    x[5 + object_.class_id] = 1.0  # class_id
+    x[5 + object_.class_id - 1] = 1.0  # class_id
     return x

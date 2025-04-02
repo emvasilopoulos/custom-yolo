@@ -31,12 +31,15 @@ class COCOInstances2017(
         y1s = sample["y1"].values
         ws = sample["w"].values
         hs = sample["h"].values
+        is_crowds = sample["iscrowd"].values
         class_ids = sample["category_id"].values
         objects_ = []
-        for x1, y1, w, h, class_id in zip(x1s, y1s, ws, hs, class_ids):
+        for x1, y1, w, h, class_id, is_crowd in zip(x1s, y1s, ws, hs, class_ids, is_crowds):
+            if is_crowd:
+                continue
             bbox = custom_yolo_lib.process.bbox.Bbox(
-                x1=x1 / image_size.width,
-                y1=y1 / image_size.height,
+                x=x1 / image_size.width,
+                y=y1 / image_size.height,
                 w=w / image_size.width,
                 h=h / image_size.height,
                 is_normalized=True,

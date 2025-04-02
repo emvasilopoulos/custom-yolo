@@ -1,7 +1,5 @@
 import dataclasses
 
-import torch
-
 import custom_yolo_lib.process.bbox
 
 

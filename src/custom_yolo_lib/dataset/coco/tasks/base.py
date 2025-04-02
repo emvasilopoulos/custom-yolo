@@ -84,9 +84,12 @@ class BaseCOCODatasetGrouped(torch.utils.data.Dataset):
         coco_type = self.get_type()
 
         self.images_dir = data_dir / f"{split}{year}"
-        annotations_dir = data_dir / "annotations"
+        annotations_dir = data_dir / "annotations/csv"
 
-        self.desired_classes = classes
+        if classes is not None:
+            self.desired_classes = classes
+        else:
+            self.desired_classes = [str(i+1) for i in range(90)]
 
         self.input_pipeline = custom_yolo_lib.process.image.pipeline.ImagePipeline(
             dtype_converter=custom_yolo_lib.process.tensor.TensorDtypeConverter(
@@ -98,17 +101,14 @@ class BaseCOCODatasetGrouped(torch.utils.data.Dataset):
         annotations_path = (
             annotations_dir
             / custom_yolo_lib.dataset.coco.tasks.utils.get_task_file(
-                coco_type, split, str(year)
+                coco_type, split, str(year), is_grouped=True, filetype=custom_yolo_lib.dataset.coco.tasks.utils.AnnotationsType.csv
             )
         )
 
         self._read_annotations(annotations_path)
 
-    def _read_image(self, image_id: int) -> torch.Tensor:
-        filename = self._image_file_name_from_id(image_id)
-        img_tensor = custom_yolo_lib.io.read.read_image_torchvision(
-            self.images_dir / filename
-        )
+    def _read_image(self, image_path: pathlib.Path) -> torch.Tensor:
+        img_tensor = custom_yolo_lib.io.read.read_image_torchvision(image_path)
         if img_tensor.shape[0] == 1:
             img_tensor = img_tensor.repeat(3, 1, 1)
         return self.input_pipeline(img_tensor)
@@ -122,9 +122,9 @@ class BaseCOCODatasetGrouped(torch.utils.data.Dataset):
     def _random_percentage(self):
         side = random.randint(0, 1)
         if side == 0:
-            return random.random() * 0.14
+            return random.random() * 0.45
         else:
-            return random.random() * 0.14 + 0.86
+            return random.random() * 0.45 + 0.55
 
     @abc.abstractmethod
     def _get_coco_item(
@@ -145,6 +145,8 @@ class BaseCOCODatasetGrouped(torch.utils.data.Dataset):
         self,
         objects: List[custom_yolo_lib.dataset.object.Object],
         resize_fixed_ratio_components: custom_yolo_lib.process.image.resize.fixed_ratio.ResizeFixedRatioComponents_v2,
+        padding_percent: float,
+        pad_value: int,
     ) -> torch.Tensor:
         if len(objects) > MAX_OBJECTS_PER_IMAGE:
             raise ValueError(
@@ -152,7 +154,7 @@ class BaseCOCODatasetGrouped(torch.utils.data.Dataset):
             )
         # Resize bboxes to match resized image
         resize_components, padding = (
-            resize_fixed_ratio_components.get_translation_components()
+            resize_fixed_ratio_components.get_translation_components(padding_percent, pad_value)
         )
         objects_tensor = (
             custom_yolo_lib.dataset.coco.tasks.utils.create_empty_coco_object_tensor(
@@ -160,8 +162,6 @@ class BaseCOCODatasetGrouped(torch.utils.data.Dataset):
                 n_objects=MAX_OBJECTS_PER_IMAGE,
                 dtype=self.dtype,
                 device=self.device,
-                pin_memory=False,
-                non_blocking=False,
             )
         )
         for i, object_ in enumerate(objects):
@@ -178,9 +178,6 @@ class BaseCOCODatasetGrouped(torch.utils.data.Dataset):
                     n_coco_classes=len(self.desired_classes),
                     dtype=self.dtype,
                     device=self.device,
-                    requires_grad=False,
-                    pin_memory=False,
-                    non_blocking=False,
                 )
             )
         return objects_tensor
@@ -193,6 +190,7 @@ class BaseCOCODatasetGrouped(torch.utils.data.Dataset):
 
         # Resize image to configured dimensions for training/validation
         padding_percent = self._random_percentage()
+        pad_value = random.randint(0, 255)
         resize_fixed_ratio_components = custom_yolo_lib.process.image.resize.fixed_ratio.ResizeFixedRatioComponents_v2(
             current_image_size=custom_yolo_lib.image_size.ImageSize(
                 width=img_tensor.shape[2], height=img_tensor.shape[1]
@@ -200,15 +198,17 @@ class BaseCOCODatasetGrouped(torch.utils.data.Dataset):
             expected_image_size=self.expected_image_size,
         )
         standard_resized_img_tensor = custom_yolo_lib.process.image.resize.fixed_ratio.resize_image_with_ready_components(
-            img_tensor=img_tensor,
-            resize_fixed_ratio_components=resize_fixed_ratio_components,
+            img_tensor,
+            fixed_ratio_components=resize_fixed_ratio_components,
             padding_percent=padding_percent,
-            pad_value=random.randint(0, 255),
+            pad_value=pad_value,
         )
 
         standard_resized_objects_tensor = self._prepare_objects_tensor(
             objects=objects,
             resize_fixed_ratio_components=resize_fixed_ratio_components,
+            padding_percent=padding_percent,
+            pad_value=pad_value,
         )
         return standard_resized_img_tensor, standard_resized_objects_tensor
 
