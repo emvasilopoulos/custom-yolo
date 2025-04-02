@@ -1,12 +1,14 @@
 import abc
 import pathlib
 import random
-from typing import Any, Dict, List, Tuple
+from typing import List, Tuple
 import enum
 
 import torch
 
+import custom_yolo_lib.config
 import custom_yolo_lib.dataset.coco.tasks.utils
+import custom_yolo_lib.dataset.object
 import custom_yolo_lib.io.read
 import custom_yolo_lib.image_size
 import custom_yolo_lib.process.bbox
@@ -17,6 +19,8 @@ import custom_yolo_lib.process.image.resize
 import custom_yolo_lib.process.image.resize.fixed_ratio
 import custom_yolo_lib.process.normalize
 import custom_yolo_lib.process.tensor
+
+MAX_OBJECTS_PER_IMAGE = 100
 
 
 class COCOYear(enum.Enum):
@@ -47,10 +51,6 @@ class BaseCOCODatasetGrouped(torch.utils.data.Dataset):
         pass
 
     @abc.abstractmethod
-    def get_pair(self, idx: int) -> Tuple[torch.Tensor, Dict[str, Any]]:
-        pass
-
-    @abc.abstractmethod
     def _read_annotations(self, annotations_path: pathlib.Path) -> None:
         pass
 
@@ -64,6 +64,8 @@ class BaseCOCODatasetGrouped(torch.utils.data.Dataset):
         split: str,
         expected_image_size: custom_yolo_lib.image_size.ImageSize,
         classes: List[str] = None,
+        device: torch.device = torch.device("cpu"),
+        dtype: torch.dtype = torch.float32,
     ):
         """
         Args:
@@ -76,6 +78,8 @@ class BaseCOCODatasetGrouped(torch.utils.data.Dataset):
         self.data_dir = data_dir
         self.split = split
         self.expected_image_size = expected_image_size
+        self.device = device
+        self.dtype = dtype
         year = self.get_year()
         coco_type = self.get_type()
 
@@ -125,11 +129,69 @@ class BaseCOCODatasetGrouped(torch.utils.data.Dataset):
     @abc.abstractmethod
     def _get_coco_item(
         self, idx: int
-    ) -> Tuple[torch.Tensor, List[custom_yolo_lib.process.bbox.Bbox]]:
+    ) -> Tuple[pathlib.Path, List[custom_yolo_lib.dataset.object.Object]]:
+        """
+        Args:
+            idx (int): index of sample in dataset
+
+        Returns:
+            Tuple[pathlib.Path, List[custom_yolo_lib.dataset.object.Object]]:
+            1. path to image
+            2. list of objects
+        """
         pass
 
+    def _prepare_objects_tensor(
+        self,
+        objects: List[custom_yolo_lib.dataset.object.Object],
+        resize_fixed_ratio_components: custom_yolo_lib.process.image.resize.fixed_ratio.ResizeFixedRatioComponents_v2,
+    ) -> torch.Tensor:
+        if len(objects) > MAX_OBJECTS_PER_IMAGE:
+            raise ValueError(
+                f"Number of objects {len(objects)} exceeds maximum {MAX_OBJECTS_PER_IMAGE}."
+            )
+        # Resize bboxes to match resized image
+        resize_components, padding = (
+            resize_fixed_ratio_components.get_translation_components()
+        )
+        objects_tensor = (
+            custom_yolo_lib.dataset.coco.tasks.utils.create_empty_coco_object_tensor(
+                n_coco_classes=len(self.desired_classes),
+                n_objects=MAX_OBJECTS_PER_IMAGE,
+                dtype=self.dtype,
+                device=self.device,
+                pin_memory=False,
+                non_blocking=False,
+            )
+        )
+        for i, object_ in enumerate(objects):
+            object_.bbox = (
+                custom_yolo_lib.process.bbox.translate.translate_bbox_to_resized_image(
+                    bbox=object_.bbox,
+                    resize_components=resize_components,
+                    padding=padding,
+                )
+            )
+            objects_tensor[i, :] = (
+                custom_yolo_lib.dataset.coco.tasks.utils.object_to_tensor(
+                    object_=object_,
+                    n_coco_classes=len(self.desired_classes),
+                    dtype=self.dtype,
+                    device=self.device,
+                    requires_grad=False,
+                    pin_memory=False,
+                    non_blocking=False,
+                )
+            )
+        return objects_tensor
+
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
-        img_tensor, bboxes = self._get_coco_item(idx)
+        image_path, objects = self._get_coco_item(idx)
+
+        # Read image
+        img_tensor = self.input_pipeline(self._read_image(image_path))
+
+        # Resize image to configured dimensions for training/validation
         padding_percent = self._random_percentage()
         resize_fixed_ratio_components = custom_yolo_lib.process.image.resize.fixed_ratio.ResizeFixedRatioComponents_v2(
             current_image_size=custom_yolo_lib.image_size.ImageSize(
@@ -144,18 +206,11 @@ class BaseCOCODatasetGrouped(torch.utils.data.Dataset):
             pad_value=random.randint(0, 255),
         )
 
-        resize_components, padding = (
-            resize_fixed_ratio_components.get_translation_components()
+        standard_resized_objects_tensor = self._prepare_objects_tensor(
+            objects=objects,
+            resize_fixed_ratio_components=resize_fixed_ratio_components,
         )
-
-        translated_bboxes = [
-            custom_yolo_lib.process.bbox.translate.translate_bbox_to_resized_image(
-                bbox=bbox,
-                resize_components=resize_components,
-                padding=padding,
-            )
-            for bbox in bboxes
-        ]
+        return standard_resized_img_tensor, standard_resized_objects_tensor
 
 
 class COCODatasetInstances2017(BaseCOCODatasetGrouped):
