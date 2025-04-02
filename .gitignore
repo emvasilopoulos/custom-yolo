@@ -1,7 +1,7 @@
 # COCO data
 instances*.json
 instances*.csv
-
+coco_data/
 .DS_Store
 
 # Byte-compiled / optimized / DLL files
