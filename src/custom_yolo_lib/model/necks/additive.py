@@ -17,9 +17,7 @@ class AdditiveNeck(torch.nn.Module):
         )  # Upsample by 2
 
     def forward(self, small, medium, large):
-
-        large = self.conv_large(large)
         small = small + self.upsample2(self.conv_medium(medium))
-        medium = medium + self.upsample1(large)
+        medium = medium + self.upsample1(self.conv_large(large))
 
         return small, medium, large
