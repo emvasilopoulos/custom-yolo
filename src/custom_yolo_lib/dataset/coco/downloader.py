@@ -9,7 +9,7 @@ def _bytes_to_mbytes(bytes: int) -> float:
     return bytes / 1024**2
 
 
-def report_progress(block_num, block_size, total_size):
+def report_progress(block_num: int, block_size: int, total_size: int) -> None:
     downloaded_size = block_num * block_size
     if total_size > 0:
         percent = downloaded_size * 100 / total_size
