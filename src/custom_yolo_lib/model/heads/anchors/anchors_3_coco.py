@@ -11,6 +11,7 @@ class ThreeAnchorCoco(enum.Enum):
 
 
 ### Values
+# xywh
 LARGE_MAP_FEATS_ANCHORS_LIST = [
     [0, 0, 0.2788, 0.2163],
     [0, 0, 0.3750, 0.4760],
