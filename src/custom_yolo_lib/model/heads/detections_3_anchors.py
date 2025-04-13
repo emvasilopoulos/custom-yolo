@@ -1,6 +1,6 @@
 import dataclasses
 import enum
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional
 
 import torch
 
@@ -96,10 +96,10 @@ class DetectionHead(torch.nn.Module):
         """
         self._multiplier = 2.0
 
-        self.meshgrids: Dict[str, List[torch.Tensor, torch.Tensor]] = {}
+        self.meshgrids: Dict[str, List[torch.Tensor]] = {}
 
     def forward(
-        self, x: torch.Tensor
+        self, x: torch.Tensor, training: bool
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         out = torch.sigmoid(self.conv(x))
         batch_size, out_feats, grid_size_h, grid_size_w = out.shape
@@ -110,33 +110,54 @@ class DetectionHead(torch.nn.Module):
             grid_size_h,
             grid_size_w,
         )  # to operate on all anchors at once (see next line)
-        # https://paperswithcode.com/method/grid-sensitive
-        # apply in x,y,w,h
-        out[:, :, :4, :, :].mul_(self._multiplier).sub_((self._multiplier - 1) / 2)
+
+        if training:
+            return DetectionHeadOutput(
+                out[:, 0], out[:, 1], out[:, 2]
+            )  # we want values between 0 and 1 for training???
 
         # Create grid tensors for x and y coordinates
         grid_size_h = out.shape[3]
         grid_size_w = out.shape[4]
         grids = self.meshgrids.get(f"{grid_size_h}_{grid_size_w}")
         if grids is None:
-            grid_y, grid_x = torch.meshgrid(
-                torch.arange(grid_size_h, dtype=torch.float32, device=x.device),
-                torch.arange(grid_size_w, dtype=torch.float32, device=x.device),
-                indexing="ij",
-            )
-            grid_x = grid_x.unsqueeze(0).unsqueeze(0)  # (1, grid_size_h, grid_size_h)
-            grid_y = grid_y.unsqueeze(0).unsqueeze(0)  # (1, grid_size_w, grid_size_w)
-            grids = [grid_y, grid_x]
+            grids = _make_grids(grid_size_h, grid_size_w)
             self.meshgrids[f"{grid_size_h}_{grid_size_w}"] = grids
-        grid_y, grid_x = grids
+        return decode_output(out, self._multiplier, grids)
 
-        # Add grid offsets to x coordinates (index 0)
-        out[:, :, 0, :, :].add_(grid_x)
 
-        # Add grid offsets to y coordinates (index 1)
-        out[:, :, 1, :, :].add_(grid_y)
+def _make_grids(grid_size_h: int, grid_size_w: int):
+    grid_y, grid_x = torch.meshgrid(
+        torch.arange(grid_size_h, dtype=torch.float32),
+        torch.arange(grid_size_w, dtype=torch.float32),
+        indexing="ij",
+    )
+    grid_x = grid_x.unsqueeze(0).unsqueeze(0)  # (1, grid_size_h, grid_size_h)
+    grid_y = grid_y.unsqueeze(0).unsqueeze(0)  # (1, grid_size_w, grid_size_w)
+    return [grid_y, grid_x]
 
-        # wh
-        out[:, :, 2:4, :, :].exp_()
 
-        return DetectionHeadOutput(out[:, 0], out[:, 1], out[:, 2])
+def decode_output(
+    out: torch.Tensor, multiplier: int, grids: Optional[List[torch.Tensor]] = None
+) -> DetectionHeadOutput:
+    # https://paperswithcode.com/method/grid-sensitive
+    # apply in x,y,w,h
+    out[:, :, :4, :, :].mul_(multiplier).sub_((multiplier - 1) / 2)
+
+    if grids is None:
+        # Create grid tensors for x and y coordinates
+        grid_size_h = out.shape[3]
+        grid_size_w = out.shape[4]
+        grids = _make_grids(grid_size_h, grid_size_w)
+    grid_y, grid_x = grids
+
+    # Add grid offsets to x coordinates (index 0)
+    out[:, :, 0, :, :].add_(grid_x)
+
+    # Add grid offsets to y coordinates (index 1)
+    out[:, :, 1, :, :].add_(grid_y)
+
+    # wh
+    out[:, :, 2:4, :, :].exp_()
+
+    return DetectionHeadOutput(out[:, 0], out[:, 1], out[:, 2])
