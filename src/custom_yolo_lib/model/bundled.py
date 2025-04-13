@@ -26,7 +26,8 @@ _ANCHORS_AS_BBOX_TENSORS = {
 
 
 class YOLOModel(torch.nn.Module):
-    def __init__(self, num_classes: int, training: bool):
+
+    def __init__(self, num_classes: int, training: bool) -> None:
         super(YOLOModel, self).__init__()
         self.training = training
         self.backbone = ThreeScalesFeatures()
@@ -57,7 +58,7 @@ def build_feature_map_targets(
     grid_size_w: int,
     num_classes: int,
     check_values: bool = False,
-):
+) -> torch.Tensor:
     anchors = _ANCHORS_AS_BBOX_TENSORS[feature_map_type]
     num_anchors = anchors.shape[0]
     assert num_anchors == 3, "Only 3 anchors are supported for each feature map type"

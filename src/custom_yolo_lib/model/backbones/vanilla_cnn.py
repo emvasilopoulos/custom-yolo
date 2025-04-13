@@ -2,7 +2,14 @@ import torch
 
 
 class ConvBlock(torch.nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size, stride, padding):
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        kernel_size: int,
+        stride: int,
+        padding: int,
+    ) -> None:
         super(ConvBlock, self).__init__()
         self.conv = torch.nn.Conv2d(
             in_channels, out_channels, kernel_size, stride, padding, bias=False
@@ -10,12 +17,12 @@ class ConvBlock(torch.nn.Module):
         self.bn = torch.nn.BatchNorm2d(out_channels)
         self.leaky_relu = torch.nn.LeakyReLU(0.1)
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.leaky_relu(self.bn(self.conv(x)))
 
 
 class Backbone(torch.nn.Module):
-    def __init__(self):
+    def __init__(self) -> None:
         super(Backbone, self).__init__()
         self.layers = torch.nn.Sequential(
             ConvBlock(3, 32, 3, 1, 1),  # Input channels = 3 (RGB)
@@ -31,7 +38,7 @@ class Backbone(torch.nn.Module):
             ConvBlock(512, 1024, 3, 1, 1),
         )
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.layers(x)
 
 

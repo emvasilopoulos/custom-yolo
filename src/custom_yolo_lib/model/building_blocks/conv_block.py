@@ -2,6 +2,7 @@ import torch
 
 
 class ConvBlock(torch.nn.Module):
+
     def __init__(
         self,
         in_channels: int,
@@ -10,7 +11,7 @@ class ConvBlock(torch.nn.Module):
         stride: int,
         padding: int,
         activation: torch.nn.Module = torch.nn.LeakyReLU(0.1),
-    ):
+    ) -> None:
         super(ConvBlock, self).__init__()
         self.conv = torch.nn.Conv2d(
             in_channels, out_channels, kernel_size, stride, padding, bias=False
@@ -18,17 +19,18 @@ class ConvBlock(torch.nn.Module):
         self.bn = torch.nn.BatchNorm2d(out_channels)
         self.activation = activation
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.activation(self.bn(self.conv(x)))
 
 
 class ResidualBlock(torch.nn.Module):
-    def __init__(self, channels: int):
+
+    def __init__(self, channels: int) -> None:
         super(ResidualBlock, self).__init__()
         self.conv1 = ConvBlock(channels, channels // 2, 1, 1, 0)
         self.conv2 = ConvBlock(channels // 2, channels, 3, 1, 1)
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         identity = x
         out = self.conv1(x)
         out = self.conv2(out)

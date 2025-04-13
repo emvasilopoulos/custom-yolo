@@ -66,14 +66,14 @@ class DetectionHeadOutput:
     anchor2_output: torch.Tensor
     anchor3_output: torch.Tensor
 
-    def __iter__(self):
+    def __iter__(self) -> iter:
         return iter((self.anchor1_output, self.anchor2_output, self.anchor3_output))
 
 
 class DetectionHead(torch.nn.Module):
     def __init__(
         self, in_channels: int, num_classes: int, feature_map_type: FeatureMapType
-    ):
+    ) -> None:
         super(DetectionHead, self).__init__()
         self.num_anchors = 3
         self.feats_per_anchor = 5 + num_classes
@@ -126,7 +126,7 @@ class DetectionHead(torch.nn.Module):
         return decode_output(out, self._multiplier, grids)
 
 
-def _make_grids(grid_size_h: int, grid_size_w: int):
+def _make_grids(grid_size_h: int, grid_size_w: int) -> List[torch.Tensor]:
     grid_y, grid_x = torch.meshgrid(
         torch.arange(grid_size_h, dtype=torch.float32),
         torch.arange(grid_size_w, dtype=torch.float32),

@@ -5,7 +5,7 @@ from custom_yolo_lib.model.backbones.vanilla_cnn import ConvBlock
 
 
 class Darknet53Backbone(torch.nn.Module):
-    def __init__(self):
+    def __init__(self) -> None:
         super(Darknet53Backbone, self).__init__()
         self.initial_layer = torch.nn.Sequential(
             ConvBlock(3, 32, 3, 1, 1),
@@ -17,13 +17,15 @@ class Darknet53Backbone(torch.nn.Module):
         self.layer4 = self._make_layer(256, 512, 8)
         self.layer5 = self._make_layer(512, 1024, 4)
 
-    def _make_layer(self, in_channels, out_channels, num_blocks):
+    def _make_layer(
+        self, in_channels: int, out_channels: int, num_blocks: int
+    ) -> torch.nn.Sequential:
         layers = [ConvBlock(in_channels, out_channels, 3, 2, 1)]  # Downsample
         for _ in range(num_blocks):
             layers.append(ResidualBlock(out_channels))
         return torch.nn.Sequential(*layers)
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.initial_layer(x)
         x = self.layer1(x)
         x = self.layer2(x)
