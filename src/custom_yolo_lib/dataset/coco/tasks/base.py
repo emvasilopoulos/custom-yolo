@@ -89,7 +89,7 @@ class BaseCOCODatasetGrouped(torch.utils.data.Dataset):
         if classes is not None:
             self.desired_classes = classes
         else:
-            self.desired_classes = [str(i+1) for i in range(90)]
+            self.desired_classes = [str(i + 1) for i in range(90)]
 
         self.input_pipeline = custom_yolo_lib.process.image.pipeline.ImagePipeline(
             dtype_converter=custom_yolo_lib.process.tensor.TensorDtypeConverter(
@@ -101,7 +101,11 @@ class BaseCOCODatasetGrouped(torch.utils.data.Dataset):
         annotations_path = (
             annotations_dir
             / custom_yolo_lib.dataset.coco.tasks.utils.get_task_file(
-                coco_type, split, str(year), is_grouped=True, filetype=custom_yolo_lib.dataset.coco.tasks.utils.AnnotationsType.csv
+                coco_type,
+                split,
+                str(year),
+                is_grouped=True,
+                filetype=custom_yolo_lib.dataset.coco.tasks.utils.AnnotationsType.csv,
             )
         )
 
@@ -154,7 +158,9 @@ class BaseCOCODatasetGrouped(torch.utils.data.Dataset):
             )
         # Resize bboxes to match resized image
         resize_components, padding = (
-            resize_fixed_ratio_components.get_translation_components(padding_percent, pad_value)
+            resize_fixed_ratio_components.get_translation_components(
+                padding_percent, pad_value
+            )
         )
         objects_tensor = (
             custom_yolo_lib.dataset.coco.tasks.utils.create_empty_coco_object_tensor(
