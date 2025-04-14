@@ -188,7 +188,7 @@ class BaseCOCODatasetGrouped(torch.utils.data.Dataset):
             )
         return objects_tensor
 
-    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
+    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         image_path, objects = self._get_coco_item(idx)
 
         # Read image
@@ -216,7 +216,11 @@ class BaseCOCODatasetGrouped(torch.utils.data.Dataset):
             padding_percent=padding_percent,
             pad_value=pad_value,
         )
-        return standard_resized_img_tensor, standard_resized_objects_tensor
+        return (
+            standard_resized_img_tensor,
+            standard_resized_objects_tensor,
+            torch.Tensor([len(objects)]),
+        )
 
 
 class COCODatasetInstances2017(BaseCOCODatasetGrouped):
