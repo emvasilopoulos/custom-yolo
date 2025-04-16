@@ -6,7 +6,6 @@ import enum
 
 import torch
 
-import custom_yolo_lib.config
 import custom_yolo_lib.dataset.coco.tasks.utils
 import custom_yolo_lib.dataset.object
 import custom_yolo_lib.io.read
@@ -64,7 +63,6 @@ class BaseCOCODatasetGrouped(torch.utils.data.Dataset):
         split: str,
         expected_image_size: custom_yolo_lib.image_size.ImageSize,
         classes: List[str] = None,
-        device: torch.device = torch.device("cpu"),
         dtype: torch.dtype = torch.float32,
     ):
         """
@@ -78,7 +76,6 @@ class BaseCOCODatasetGrouped(torch.utils.data.Dataset):
         self.data_dir = data_dir
         self.split = split
         self.expected_image_size = expected_image_size
-        self.device = device
         self.dtype = dtype
         year = self.get_year()
         coco_type = self.get_type()
@@ -89,7 +86,7 @@ class BaseCOCODatasetGrouped(torch.utils.data.Dataset):
         if classes is not None:
             self.desired_classes = classes
         else:
-            self.desired_classes = [str(i + 1) for i in range(90)]
+            self.desired_classes = [str(i + 1) for i in range(80)]
 
         self.input_pipeline = custom_yolo_lib.process.image.pipeline.ImagePipeline(
             dtype_converter=custom_yolo_lib.process.tensor.TensorDtypeConverter(
@@ -167,10 +164,11 @@ class BaseCOCODatasetGrouped(torch.utils.data.Dataset):
                 n_coco_classes=len(self.desired_classes),
                 n_objects=MAX_OBJECTS_PER_IMAGE,
                 dtype=self.dtype,
-                device=self.device,
             )
         )
         for i, object_ in enumerate(objects):
+            if not object_.bbox.is_normalized:
+                raise ValueError(f"Object bbox {object_.bbox} is not normalized.")
             object_.bbox = (
                 custom_yolo_lib.process.bbox.translate.translate_bbox_to_resized_image(
                     bbox=object_.bbox,
@@ -183,7 +181,6 @@ class BaseCOCODatasetGrouped(torch.utils.data.Dataset):
                     object_=object_,
                     n_coco_classes=len(self.desired_classes),
                     dtype=self.dtype,
-                    device=self.device,
                 )
             )
         return objects_tensor
@@ -219,7 +216,7 @@ class BaseCOCODatasetGrouped(torch.utils.data.Dataset):
         return (
             standard_resized_img_tensor,
             standard_resized_objects_tensor,
-            torch.Tensor([len(objects)]),
+            torch.tensor([len(objects)], dtype=torch.uint8),
         )
 
 
