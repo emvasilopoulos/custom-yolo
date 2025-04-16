@@ -101,7 +101,7 @@ def object_to_tensor(
     x[2] = object_.bbox.w
     x[3] = object_.bbox.h
     x[4] = 1.0  # objectness
-    x[5 + object_.class_id - 1] = 1.0  # class_id
+    x[5 + object_.class_id] = 1.0  # class_id
     return x
 
 
