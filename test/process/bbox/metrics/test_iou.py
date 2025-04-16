@@ -122,8 +122,6 @@ class TestBboxIoU(unittest.TestCase):
         computed_ciou = custom_yolo_lib.process.bbox.metrics.iou.bbox_ciou(
             box1, box2, xywh=False
         )
-        print(f"Computed CIoU: {computed_ciou}")
-        print(f"Expected CIoU: {expected_iou}")
         self.assertEqual(computed_ciou.item(), expected_iou)
 
     def test_zero_intersection(self):
@@ -142,8 +140,22 @@ class TestBboxIoU(unittest.TestCase):
             box1, box2, xywh=False
         )
         expected_iou = ultralytics_bbox_iou(box1, box2, xywh=False)
-        print(f"Computed IoU: {computed_iou}")
-        print(f"Expected IoU: {expected_iou}")
+        self.assertTrue(
+            torch.allclose(computed_iou, expected_iou), "Batch input IoU mismatch"
+        )
+
+    def test_batch_input2(self):
+        bboxes1 = torch.tensor(
+            [[[0, 0, 4, 4], [2, 2, 6, 6]], [[0, 0, 4, 4], [2, 2, 6, 6]]]
+        )
+        bboxes2 = torch.tensor(
+            [[[2, 2, 6, 6], [0, 0, 4, 4]], [[2, 2, 6, 6], [0, 0, 4, 4]]]
+        )
+        expected_iou = ultralytics_bbox_iou(bboxes1, bboxes2, xywh=False)
+        computed_iou = custom_yolo_lib.process.bbox.metrics.iou.bbox_iou(
+            bboxes1, bboxes2, xywh=False
+        )
+
         self.assertTrue(
             torch.allclose(computed_iou, expected_iou), "Batch input IoU mismatch"
         )
