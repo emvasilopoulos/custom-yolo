@@ -25,6 +25,7 @@ class COCOInstances2017(
         return self.images_dir / image_filename
 
     def _is_in_classes(self, class_id: int) -> bool:
+        # TODO: replace with dictionary search
         return 0 < class_id < len(self.desired_classes)
 
     def _extract_objects(
@@ -55,7 +56,7 @@ class COCOInstances2017(
             objects_.append(
                 custom_yolo_lib.dataset.object.Object(
                     bbox=bbox,
-                    class_id=class_id,
+                    class_id=class_id - 1,  # 0-based index
                 )
             )
         return objects_
