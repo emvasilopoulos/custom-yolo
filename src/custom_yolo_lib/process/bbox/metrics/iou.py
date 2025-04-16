@@ -25,7 +25,7 @@ def bbox_iou(
 
 def bbox_giou(
     box1: torch.Tensor, box2: torch.Tensor, xywh: bool = True, eps: float = 1e-7
-):
+) -> torch.Tensor:
     """
     Calculate the Intersection over Union (IoU) between bounding boxes.
 
@@ -70,7 +70,7 @@ def bbox_giou(
 
 def bbox_diou(
     box1: torch.Tensor, box2: torch.Tensor, xywh: bool = True, eps: float = 1e-7
-):
+) -> torch.Tensor:
     """
     Calculate the Intersection over Union (IoU) between bounding boxes.
 
@@ -117,7 +117,7 @@ def bbox_diou(
 
 def bbox_ciou(
     box1: torch.Tensor, box2: torch.Tensor, xywh: bool = True, eps: float = 1e-7
-):
+) -> torch.Tensor:
     """
     Calculate the Intersection over Union (IoU) between bounding boxes.
 
