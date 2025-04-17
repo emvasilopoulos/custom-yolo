@@ -47,6 +47,7 @@ def translate_bbox_to_resized_image(
             w=w_norm,
             h=h_norm,
             is_normalized=True,
+            is_top_left=bbox.is_top_left,
         )
     else:
         raise NotImplementedError(
