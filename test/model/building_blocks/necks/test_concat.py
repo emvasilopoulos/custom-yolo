@@ -2,7 +2,7 @@ import unittest
 
 import torch
 
-from custom_yolo_lib.model.necks.concat import NeckConcat
+from custom_yolo_lib.model.building_blocks.necks.concat import NeckConcat
 
 
 class TestNeckConcat(unittest.TestCase):

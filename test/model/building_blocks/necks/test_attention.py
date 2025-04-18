@@ -2,7 +2,10 @@ import unittest
 
 import torch
 
-from custom_yolo_lib.model.necks.attention import AttentionNeck, AttentionNeck2
+from custom_yolo_lib.model.building_blocks.necks.attention import (
+    AttentionNeck,
+    AttentionNeck2,
+)
 
 
 class TestAttentionNeck(unittest.TestCase):

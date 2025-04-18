@@ -3,7 +3,7 @@ import unittest
 
 import torch
 
-from custom_yolo_lib.model.heads.detections_3_anchors import (
+from custom_yolo_lib.model.building_blocks.heads.detections_3_anchors import (
     DetectionHead,
     FeatureMapType,
 )

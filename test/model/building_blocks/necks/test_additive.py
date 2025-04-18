@@ -2,7 +2,7 @@ import unittest
 
 import torch
 
-from custom_yolo_lib.model.necks.additive import AdditiveNeck
+from custom_yolo_lib.model.building_blocks.necks.additive import AdditiveNeck
 
 
 class TestAdditiveNeck(unittest.TestCase):

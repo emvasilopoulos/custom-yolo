@@ -2,7 +2,7 @@ import unittest
 
 import torch
 
-from custom_yolo_lib.model.backbones.darknet_53 import Darknet53Backbone
+from custom_yolo_lib.model.building_blocks.backbones.darknet_53 import Darknet53Backbone
 
 
 class TestDarknet53Backbone(unittest.TestCase):

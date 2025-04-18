@@ -2,7 +2,9 @@ import unittest
 
 import torch
 
-from custom_yolo_lib.model.backbones.three_scales import ThreeScalesFeatures
+from custom_yolo_lib.model.building_blocks.backbones.three_scales import (
+    ThreeScalesFeatures,
+)
 
 
 class TestThreeScalesFeatures(unittest.TestCase):
