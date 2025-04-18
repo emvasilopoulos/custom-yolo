@@ -6,7 +6,7 @@ import torch
 
 import custom_yolo_lib.process.bbox
 import custom_yolo_lib.process.bbox.utils
-import custom_yolo_lib.model.heads.anchors.anchors_3_coco
+import custom_yolo_lib.model.building_blocks.heads.anchors.anchors_3_coco
 
 
 class FeatureMapType(enum.Enum):

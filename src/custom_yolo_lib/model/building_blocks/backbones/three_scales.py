@@ -1,8 +1,8 @@
 import torch
 
-from custom_yolo_lib.model.backbones.vanilla_cnn import ConvBlock
+from custom_yolo_lib.model.building_blocks.backbones.vanilla_cnn import ConvBlock
 from custom_yolo_lib.model.building_blocks.conv_block import ResidualBlock
-from custom_yolo_lib.model.necks.additive import AdditiveNeck
+from custom_yolo_lib.model.building_blocks.necks.additive import AdditiveNeck
 
 
 class ThreeScalesFeatures(torch.nn.Module):

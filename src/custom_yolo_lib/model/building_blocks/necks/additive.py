@@ -1,6 +1,6 @@
 import torch
 
-from custom_yolo_lib.model.backbones.vanilla_cnn import ConvBlock
+from custom_yolo_lib.model.building_blocks.backbones.vanilla_cnn import ConvBlock
 
 
 class AdditiveNeck(torch.nn.Module):

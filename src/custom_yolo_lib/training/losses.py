@@ -1,4 +1,7 @@
+import enum
 import torch
+
+import custom_yolo_lib.process.bbox.metrics.iou
 
 
 class FocalLoss(torch.nn.Module):
@@ -35,3 +38,32 @@ class FocalLoss(torch.nn.Module):
                 f"Invalid Value for arg 'self.reduction': '{self.reduction} \n Supported reduction modes: 'none', 'mean', 'sum'"
             )
         return loss
+
+
+class BoxLoss(torch.nn.Module):
+
+    class IoUType(enum.Enum):
+        CIoU = enum.auto()
+        DIoU = enum.auto()
+        IoU = enum.auto()
+        GIoU = enum.auto()
+
+    def __init__(self, iou_type: IoUType) -> None:
+        super(BoxLoss, self).__init__()
+        if iou_type == self.IoUType.CIoU:
+            self.iou_fn = custom_yolo_lib.process.bbox.metrics.iou.bbox_ciou
+        elif iou_type == self.IoUType.DIoU:
+            self.iou_fn = custom_yolo_lib.process.bbox.metrics.iou.bbox_diou
+        elif iou_type == self.IoUType.IoU:
+            self.iou_fn = custom_yolo_lib.process.bbox.metrics.iou.bbox_iou
+        elif iou_type == self.IoUType.GIoU:
+            self.iou_fn = custom_yolo_lib.process.bbox.metrics.iou.bbox_giou
+        else:
+            raise ValueError(
+                f"Invalid IoU type: {iou_type}. Supported types: {list(self.IoUType)}"
+            )
+
+    def forward(self, predictions: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+        iou_scores = self.iou_fn(predictions, targets).squeeze(1)
+        loss = 1.0 - iou_scores
+        return loss.mean()
