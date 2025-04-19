@@ -3,14 +3,17 @@ import torch
 
 from custom_yolo_lib.model.building_blocks.heads.detections_3_anchors import (
     DetectionHeadOutput,
-    FeatureMapType,
 )
 import custom_yolo_lib.model.e2e.anchor_based.training_utils
 import custom_yolo_lib.training.losses
 
 
 class YOLOLossPerFeatureMap(torch.nn.Module):
-    def __init__(self, num_classes: int, feature_map_type: FeatureMapType) -> None:
+    def __init__(
+        self,
+        num_classes: int,
+        feature_map_anchors: custom_yolo_lib.model.e2e.anchor_based.training_utils.AnchorsTensor,
+    ) -> None:
         super(YOLOLossPerFeatureMap, self).__init__()
         self.num_classes = num_classes
         self.class_loss = custom_yolo_lib.training.losses.FocalLoss()
@@ -18,7 +21,7 @@ class YOLOLossPerFeatureMap(torch.nn.Module):
             iou_type=custom_yolo_lib.training.losses.BoxLoss.IoUType.CIoU
         )
         self.objectness_loss = torch.nn.BCELoss()
-        self.feature_map_type = feature_map_type
+        self.feature_map_anchors = feature_map_anchors
 
     def _get_targets_in_grid(
         self,
@@ -32,7 +35,7 @@ class YOLOLossPerFeatureMap(torch.nn.Module):
             target_in_grid, target_mask = (
                 custom_yolo_lib.model.e2e.anchor_based.training_utils.build_feature_map_targets(
                     trgt,
-                    feature_map_type=self.feature_map_type,
+                    anchor_tensor=self.feature_map_anchors,
                     grid_size_h=grid_size_h,  # NOTE: All anchor outputs have the same shape
                     grid_size_w=grid_size_w,
                     num_classes=self.num_classes,
