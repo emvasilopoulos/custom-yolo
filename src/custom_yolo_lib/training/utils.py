@@ -10,15 +10,21 @@ def _get_pytorch_norm_layers():
 
 @dataclasses.dataclass
 class GroupedParams:
-    weight_decay: List[torch.nn.Parameter] = []
-    no_weight_decay: List[torch.nn.Parameter] = []
-    bias: List[torch.nn.Parameter] = []
+    weight_decay: List[torch.nn.Parameter] = dataclasses.field(
+        default_factory=List[torch.nn.Parameter]
+    )
+    no_weight_decay: List[torch.nn.Parameter] = dataclasses.field(
+        default_factory=List[torch.nn.Parameter]
+    )
+    bias: List[torch.nn.Parameter] = dataclasses.field(
+        default_factory=List[torch.nn.Parameter]
+    )
 
 
 def get_params_grouped(model: torch.nn.Module) -> GroupedParams:
     bn = _get_pytorch_norm_layers()
 
-    parameters_grouped = GroupedParams()
+    parameters_grouped = GroupedParams(weight_decay=[], no_weight_decay=[], bias=[])
     for module_name, module in model.named_modules():
         for param_name, param in module.named_parameters(recurse=False):
             fullname = f"{module_name}.{param_name}" if module_name else param_name
