@@ -123,6 +123,7 @@ class COCODataLoaderThreeFeatureMapBatch:
     small_objects_batch: List[torch.Tensor]
     medium_objects_batch: List[torch.Tensor]
     large_objects_batch: List[torch.Tensor]
+    batch_size: int
 
     def get_sample(
         self, index: int
@@ -132,6 +133,13 @@ class COCODataLoaderThreeFeatureMapBatch:
             self.small_objects_batch[index],
             self.medium_objects_batch[index],
             self.large_objects_batch[index],
+        )
+
+    def has_objects(self, index: int) -> bool:
+        return (
+            self.small_objects_batch[index].size().count() > 0
+            or self.medium_objects_batch[index].size().count() > 0
+            or self.large_objects_batch[index].size().count() > 0
         )
 
 
@@ -207,4 +215,5 @@ class COCODataLoaderThreeFeatureMaps(torch.utils.data.DataLoader):
             small_objects_batch=small_objects_batch,
             medium_objects_batch=medium_objects_batch,
             large_objects_batch=large_objects_batch,
+            batch_size=len(batch),
         )
