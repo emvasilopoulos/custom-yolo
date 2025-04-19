@@ -247,15 +247,22 @@ class BaseCOCODatasetGrouped(torch.utils.data.Dataset):
             padding_percent=padding_percent,
             pad_value=pad_value,
         )
+        assert len(translated_objects) == len(objects)  # sanity check
+
         # NOTE: sacrificing "optimization" for readability (meaning I could run this in a previous loop)
         for obj in translated_objects:
             obj.bbox.to_center()
 
+        if not translated_objects:
+            objects_tensor = torch.tensor([])
+        else:
+            objects_tensor = torch.stack(
+                [obj.to_tensor() for obj in translated_objects]
+            )
+
         return {
             COCODatasetSampleKeys.IMAGE_TENSOR: standard_resized_img_tensor,
-            COCODatasetSampleKeys.OBJECTS_TENSOR: torch.stack(
-                [obj.to_tensor() for obj in translated_objects]
-            ),
+            COCODatasetSampleKeys.OBJECTS_TENSOR: objects_tensor,
             COCODatasetSampleKeys.OBJECTS_COUNT: torch.tensor(
                 [len(objects)], dtype=torch.uint8
             ),
