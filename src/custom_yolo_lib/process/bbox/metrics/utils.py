@@ -25,10 +25,21 @@ def intersection(
     b2_x2: torch.Tensor,
     b2_y2: torch.Tensor,
 ) -> torch.Tensor:
-    # Intersection area
-    return (b1_x2.minimum(b2_x2) - b1_x1.maximum(b2_x1)).clamp_(0) * (
-        b1_y2.minimum(b2_y2) - b1_y1.maximum(b2_y1)
-    ).clamp_(0)
+    try:
+        # Intersection area
+        return (b1_x2.minimum(b2_x2) - b1_x1.maximum(b2_x1)).clamp_(0) * (
+            b1_y2.minimum(b2_y2) - b1_y1.maximum(b2_y1)
+        ).clamp_(0)
+    except:
+        print(f"b1_x1: {b1_x1}")
+        print(f"b1_y1: {b1_y1}")
+        print(f"b1_x2: {b1_x2}")
+        print(f"b1_y2: {b1_y2}")
+        print(f"b2_x1: {b2_x1}")
+        print(f"b2_y1: {b2_y1}")
+        print(f"b2_x2: {b2_x2}")
+        print(f"b2_y2: {b2_y2}")
+        raise ValueError("Error in intersection calculation. Check the input tensors.")
 
 
 def union(

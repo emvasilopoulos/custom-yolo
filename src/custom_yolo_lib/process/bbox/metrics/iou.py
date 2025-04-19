@@ -135,31 +135,39 @@ def bbox_ciou(
     Returns:
         (torch.Tensor): Complete IoU values.
     """
-    b1_x1, b1_y1, b1_x2, b1_y2, w1, h1 = (
-        custom_yolo_lib.process.bbox.metrics.utils.extract_coords(box1, xywh, eps)
-    )
-    b2_x1, b2_y1, b2_x2, b2_y2, w2, h2 = (
-        custom_yolo_lib.process.bbox.metrics.utils.extract_coords(box2, xywh, eps)
-    )
-    inter = custom_yolo_lib.process.bbox.metrics.utils.intersection(
-        b1_x1, b1_y1, b1_x2, b1_y2, b2_x1, b2_y1, b2_x2, b2_y2
-    )  # Intersection area
-    union = custom_yolo_lib.process.bbox.metrics.utils.union(
-        w1, h1, w2, h2, inter, eps
-    )  # Union Area
+    try:
+        b1_x1, b1_y1, b1_x2, b1_y2, w1, h1 = (
+            custom_yolo_lib.process.bbox.metrics.utils.extract_coords(box1, xywh, eps)
+        )
+        b2_x1, b2_y1, b2_x2, b2_y2, w2, h2 = (
+            custom_yolo_lib.process.bbox.metrics.utils.extract_coords(box2, xywh, eps)
+        )
+        inter = custom_yolo_lib.process.bbox.metrics.utils.intersection(
+            b1_x1, b1_y1, b1_x2, b1_y2, b2_x1, b2_y1, b2_x2, b2_y2
+        )  # Intersection area
+        union = custom_yolo_lib.process.bbox.metrics.utils.union(
+            w1, h1, w2, h2, inter, eps
+        )  # Union Area
 
-    # IoU
-    iou = inter / union
+        # IoU
+        iou = inter / union
 
-    cw, ch = custom_yolo_lib.process.bbox.metrics.utils.convex_smallest_enclosing_box(
-        b1_x1, b1_y1, b1_x2, b1_y2, b2_x1, b2_y1, b2_x2, b2_y2
-    )  # convex (smallest enclosing box)
-    c2 = cw.pow(2) + ch.pow(2) + eps  # convex diagonal squared
-    rho2 = (
-        (b2_x1 + b2_x2 - b1_x1 - b1_x2).pow(2) + (b2_y1 + b2_y2 - b1_y1 - b1_y2).pow(2)
-    ) / 4  # center dist**2
-    # https://github.com/Zzh-tju/DIoU-SSD-pytorch/blob/master/utils/box/box_utils.py#L47
-    v = (4 / math.pi**2) * ((w2 / h2).atan() - (w1 / h1).atan()).pow(2)
-    with torch.no_grad():
-        alpha = v / (v - iou + (1 + eps))
-    return iou - (rho2 / c2 + v * alpha)  # CIoU
+        cw, ch = (
+            custom_yolo_lib.process.bbox.metrics.utils.convex_smallest_enclosing_box(
+                b1_x1, b1_y1, b1_x2, b1_y2, b2_x1, b2_y1, b2_x2, b2_y2
+            )
+        )  # convex (smallest enclosing box)
+        c2 = cw.pow(2) + ch.pow(2) + eps  # convex diagonal squared
+        rho2 = (
+            (b2_x1 + b2_x2 - b1_x1 - b1_x2).pow(2)
+            + (b2_y1 + b2_y2 - b1_y1 - b1_y2).pow(2)
+        ) / 4  # center dist**2
+        # https://github.com/Zzh-tju/DIoU-SSD-pytorch/blob/master/utils/box/box_utils.py#L47
+        v = (4 / math.pi**2) * ((w2 / h2).atan() - (w1 / h1).atan()).pow(2)
+        with torch.no_grad():
+            alpha = v / (v - iou + (1 + eps))
+        return iou - (rho2 / c2 + v * alpha)  # CIoU
+    except:
+        print(f"box1: {box1}")
+        print(f"box2: {box2}")
+        exit()
