@@ -16,20 +16,20 @@ class FeatureMapType(enum.Enum):
 
 
 _ANCHORS_AS_BBOX = {
-    FeatureMapType.SMALL: custom_yolo_lib.model.heads.anchors.anchors_3_coco.SMALL_MAP_FEATS_ANCHORS,
-    FeatureMapType.MEDIUM: custom_yolo_lib.model.heads.anchors.anchors_3_coco.MEDIUM_MAP_FEATS_ANCHORS,
-    FeatureMapType.LARGE: custom_yolo_lib.model.heads.anchors.anchors_3_coco.LARGE_MAP_FEATS_ANCHORS,
+    FeatureMapType.SMALL: custom_yolo_lib.model.building_blocks.heads.anchors.anchors_3_coco.SMALL_MAP_FEATS_ANCHORS,
+    FeatureMapType.MEDIUM: custom_yolo_lib.model.building_blocks.heads.anchors.anchors_3_coco.MEDIUM_MAP_FEATS_ANCHORS,
+    FeatureMapType.LARGE: custom_yolo_lib.model.building_blocks.heads.anchors.anchors_3_coco.LARGE_MAP_FEATS_ANCHORS,
 }
 
 _ANCHORS_AS_BBOX_TENSORS = {
     FeatureMapType.SMALL: torch.tensor(
-        custom_yolo_lib.model.heads.anchors.anchors_3_coco.SMALL_MAP_FEATS_ANCHORS_LIST
+        custom_yolo_lib.model.building_blocks.heads.anchors.anchors_3_coco.SMALL_MAP_FEATS_ANCHORS_LIST
     ),
     FeatureMapType.MEDIUM: torch.tensor(
-        custom_yolo_lib.model.heads.anchors.anchors_3_coco.MEDIUM_MAP_FEATS_ANCHORS_LIST
+        custom_yolo_lib.model.building_blocks.heads.anchors.anchors_3_coco.MEDIUM_MAP_FEATS_ANCHORS_LIST
     ),
     FeatureMapType.LARGE: torch.tensor(
-        custom_yolo_lib.model.heads.anchors.anchors_3_coco.LARGE_MAP_FEATS_ANCHORS_LIST
+        custom_yolo_lib.model.building_blocks.heads.anchors.anchors_3_coco.LARGE_MAP_FEATS_ANCHORS_LIST
     ),
 }
 
@@ -37,13 +37,19 @@ _ANCHORS_AS_BBOX_TENSORS = {
 def match_norm_bbox_with_anchor(
     feature_map_type: FeatureMapType,
     bbox: custom_yolo_lib.process.bbox.Bbox,
-) -> custom_yolo_lib.model.heads.anchors.anchors_3_coco.ThreeAnchorCoco:
+) -> custom_yolo_lib.model.building_blocks.heads.anchors.anchors_3_coco.ThreeAnchorCoco:
     if not bbox.is_normalized:
         raise ValueError("Bounding box must be normalized.")
 
     max_iou = 0
-    best_anchor = custom_yolo_lib.model.heads.anchors.anchors_3_coco.ThreeAnchorCoco.ONE
-    for anchor in custom_yolo_lib.model.heads.anchors.anchors_3_coco.ThreeAnchorCoco:
+    best_anchor = (
+        custom_yolo_lib.model.building_blocks.heads.anchors.anchors_3_coco.ThreeAnchorCoco.ONE
+    )
+    for (
+        anchor
+    ) in (
+        custom_yolo_lib.model.building_blocks.heads.anchors.anchors_3_coco.ThreeAnchorCoco
+    ):
         iou = custom_yolo_lib.process.bbox.utils.calculate_iou(
             bbox, _ANCHORS_AS_BBOX[feature_map_type][anchor]
         )
