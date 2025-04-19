@@ -63,6 +63,9 @@ class StepLRScheduler(BaseLRScheduler):
                         f"Resetting 'lr' for param_group-{i} to {param_group['lr']:.6f} "
                     )
 
+    def get_lr(self):
+        return [param_group["lr"] for param_group in self.optimizer.param_groups]
+
 
 class MyLRScheduler(BaseLRScheduler):
 
