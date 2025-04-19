@@ -63,7 +63,35 @@ class BoxLoss(torch.nn.Module):
                 f"Invalid IoU type: {iou_type}. Supported types: {list(self.IoUType)}"
             )
 
+    def _filter(self, boxes: torch.Tensor) -> torch.Tensor:
+        """
+        Filter out boxes with zero width or height.
+        Args:
+            boxes (torch.Tensor): Bounding boxes of shape (N, 4).
+        Returns:
+            torch.Tensor: Filtered bounding boxes.
+        """
+        boxes = boxes[boxes[:, 2] > 0.0]
+        if boxes.shape[0] == 0:
+            return boxes
+        return boxes[boxes[:, 3] > 0.0]
+
     def forward(self, predictions: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+        """
+        Args:
+            predictions (torch.Tensor): Predicted bounding boxes of shape (N, 4).
+            targets (torch.Tensor): Target bounding boxes of shape (M, 4).
+        Returns:
+            torch.Tensor: Loss value.
+        """
+        predictions = self._filter(predictions)
+        targets = self._filter(targets)
+        if predictions.shape[0] == 0 and targets.shape[0] > 0:
+            return torch.tensor(1.0, device=predictions.device)
+        if targets.shape[0] == 0 and predictions.shape[0] > 0:
+            return torch.tensor(1.0, device=predictions.device)
+        if predictions.shape[0] == 0 and targets.shape[0] == 0:
+            return torch.tensor(0.0, device=predictions.device)
         iou_scores = self.iou_fn(predictions, targets).squeeze(1)
         loss = 1.0 - iou_scores
         return loss.mean()
