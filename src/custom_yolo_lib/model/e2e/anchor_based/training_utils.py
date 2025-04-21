@@ -58,6 +58,7 @@ def build_feature_map_targets(
     grid_size_w: int,
     num_classes: int,
     check_values: bool = False,
+    positive_sample_iou_thershold: float = 0.5,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     anchors = anchor_tensor.anchors
     num_anchors = anchors.shape[0]
@@ -73,46 +74,48 @@ def build_feature_map_targets(
         device=annotations.device,
     )
 
-    # targets_masks2 = torch.zeros(num_anchors, grid_size_h, grid_size_w) """ EXPERIMENTAL """
     for obj in annotations:
         bx, by, bw, bh, class_id = obj  # YOLOv2 naming convention | zero based class_id
-        class_id = int(class_id)
-        grid_x = int(bx * grid_size_w)
-        grid_y = int(by * grid_size_h)
         box = torch.tensor([0, 0, bw, bh], device=annotations.device)
         ious = custom_yolo_lib.process.bbox.utils.calculate_iou_tensors(box, anchors)
-        best_anchor = torch.argmax(ious)
-        # Fill the target
-        targets[best_anchor, 0, grid_y, grid_x] = (
-            bx * grid_size_w - grid_x
-        )  # x offset inside cell | example if x=0.5, grid_size=13, grid_x=6 then in grid cell x offset is 0.5*13-6=0.5
-        targets[best_anchor, 1, grid_y, grid_x] = (
-            by * grid_size_h - grid_y
-        )  # y offset inside cell
-        t_w = torch.log(bw / anchors[best_anchor, 2])
-        t_h = torch.log(bh / anchors[best_anchor, 3])
-        if check_values:
-            assert (targets[best_anchor, 0, grid_y, grid_x] <= 1).all()
-            assert (0 <= targets[best_anchor, 0, grid_y, grid_x]).all()
-            assert (targets[best_anchor, 1, grid_y, grid_x] <= 1).all()
-            assert (0 <= targets[best_anchor, 1, grid_y, grid_x]).all()
-            # assert 0 <= t_w <= 1 # fails with bad anchor
-            # assert 0 <= t_h <= 1 # fails with bad anchor
+        for anchor_i in range(num_anchors):
+            # Filter anchors
+            if ious[anchor_i] < positive_sample_iou_thershold:
+                continue
+            potential_anchor = anchor_i
+            """ NOTE: matches with custom_yolo_lib.model.building_blocks.heads.detections_3_anchors.decode_output """
+            t_w = torch.sqrt(
+                bw / anchors[potential_anchor, 2]
+            )  # Encode with sqrt instead of log to ensure more anchors in range [0, 1]
+            t_h = torch.sqrt(bh / anchors[potential_anchor, 3])
+            if t_w > 1 or t_h > 1:
+                # This anchor is not good enough
+                continue
 
-        targets[best_anchor, 2, grid_y, grid_x] = t_w
-        targets[best_anchor, 3, grid_y, grid_x] = t_h
-        targets[best_anchor, 4, grid_y, grid_x] = 1.0  # objectness
-        targets[best_anchor, 5 + class_id, grid_y, grid_x] = 1.0  # class score
+            class_id = int(class_id)
+            grid_x = int(bx * grid_size_w)
+            grid_y = int(by * grid_size_h)
+            objectness = ious[potential_anchor]
 
-        targets_mask[best_anchor, grid_y, grid_x] = True
+            # Fill the target
+            targets[potential_anchor, 0, grid_y, grid_x] = (
+                bx * grid_size_w - grid_x
+            )  # x offset inside cell | example if x=0.5, grid_size=13, grid_x=6 then in grid cell x offset is 0.5*13-6=0.5
+            targets[potential_anchor, 1, grid_y, grid_x] = (
+                by * grid_size_h - grid_y
+            )  # y offset inside cell
+            if check_values:
+                assert (targets[potential_anchor, 0, grid_y, grid_x] <= 1).all()
+                assert (0 <= targets[potential_anchor, 0, grid_y, grid_x]).all()
+                assert (targets[potential_anchor, 1, grid_y, grid_x] <= 1).all()
+                assert (0 <= targets[potential_anchor, 1, grid_y, grid_x]).all()
+                assert 0 <= t_w <= 1  # fails with bad anchor
+                assert 0 <= t_h <= 1  # fails with bad anchor
 
-        """ EXPERIMENTAL """
-        # # where the object is & neighbouring grids, to account for one use case:
-        # # target is in grid cell x, y & x offset is ~0.9 while prediction is in grid cell x+1, y & x offset is ~0.1
-        # targets_masks2[
-        #     best_anchor,
-        #     max(grid_y - 1, 0) : min(grid_y + 1, grid_size_h),
-        #     max(grid_x, 0) : min(grid_x + 1, grid_size_w),
-        # ] = 1.0
+            targets[potential_anchor, 2, grid_y, grid_x] = t_w
+            targets[potential_anchor, 3, grid_y, grid_x] = t_h
+            targets[potential_anchor, 4, grid_y, grid_x] = objectness  # objectness
+            targets[potential_anchor, 5 + class_id, grid_y, grid_x] = 1.0  # class score
 
-    return targets, targets_mask
+            targets_mask[potential_anchor, grid_y, grid_x] = True
+        return targets, targets_mask

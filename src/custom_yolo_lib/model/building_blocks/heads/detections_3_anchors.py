@@ -169,7 +169,8 @@ def decode_output(
     # Add grid offsets to y coordinates (index 1)
     out[:, :, 1, :, :].add_(grid_y)
 
+    """ NOTE: matches with custom_yolo_lib.model.e2e.anchor_based.training_utils.build_feature_map_targets """
     # wh
-    out[:, :, 2:4, :, :].exp_()
+    out[:, :, 2:4, :, :].pow_(2)  #
 
     return DetectionHeadOutput(out[:, 0], out[:, 1], out[:, 2])
