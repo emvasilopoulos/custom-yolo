@@ -127,19 +127,25 @@ class DetectionHead(torch.nn.Module):
         grid_size_w = out.shape[4]
         grids = self.meshgrids.get(f"{grid_size_h}_{grid_size_w}")
         if grids is None:
-            grids = _make_grids(grid_size_h, grid_size_w)
+            grids = _make_grids(grid_size_h, grid_size_w, device=out.device)
             self.meshgrids[f"{grid_size_h}_{grid_size_w}"] = grids
         return decode_output(out, self._multiplier, grids)
 
 
-def _make_grids(grid_size_h: int, grid_size_w: int) -> List[torch.Tensor]:
+def _make_grids(
+    grid_size_h: int, grid_size_w: int, device: torch.device
+) -> List[torch.Tensor]:
     grid_y, grid_x = torch.meshgrid(
         torch.arange(grid_size_h, dtype=torch.float32),
         torch.arange(grid_size_w, dtype=torch.float32),
         indexing="ij",
     )
-    grid_x = grid_x.unsqueeze(0).unsqueeze(0)  # (1, grid_size_h, grid_size_h)
-    grid_y = grid_y.unsqueeze(0).unsqueeze(0)  # (1, grid_size_w, grid_size_w)
+    grid_x = (
+        grid_x.unsqueeze(0).unsqueeze(0).to(device)
+    )  # (1, grid_size_h, grid_size_h)
+    grid_y = (
+        grid_y.unsqueeze(0).unsqueeze(0).to(device)
+    )  # (1, grid_size_w, grid_size_w)
     return [grid_y, grid_x]
 
 
@@ -154,7 +160,7 @@ def decode_output(
         # Create grid tensors for x and y coordinates
         grid_size_h = out.shape[3]
         grid_size_w = out.shape[4]
-        grids = _make_grids(grid_size_h, grid_size_w)
+        grids = _make_grids(grid_size_h, grid_size_w, device=out.device)
     grid_y, grid_x = grids
 
     # Add grid offsets to x coordinates (index 0)
