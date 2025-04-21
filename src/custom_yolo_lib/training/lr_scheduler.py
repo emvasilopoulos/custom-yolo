@@ -49,7 +49,9 @@ class StepLRScheduler(BaseLRScheduler):
     def update_loss(self, loss: torch.nn.Module):
         self.__current_step += 1
         if self.__current_step % self.__step_size == 0:
-            perc = random.uniform(0.85, 0.95)
+            perc = (
+                torch.rand(1).item() * 0.1 + 0.85
+            )  # equivalent with random.uniform(0.85, 0.95)
             for i, param_group in enumerate(self.optimizer.param_groups):
                 if param_group["lr"] > 0.000001:
                     temp = param_group["lr"]
