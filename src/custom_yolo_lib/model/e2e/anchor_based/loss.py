@@ -16,11 +16,11 @@ class YOLOLossPerFeatureMap(torch.nn.Module):
     ) -> None:
         super(YOLOLossPerFeatureMap, self).__init__()
         self.num_classes = num_classes
-        self.class_loss = custom_yolo_lib.training.losses.FocalLoss()
+        self.class_loss = custom_yolo_lib.training.losses.FocalLoss(reduction="sum")
         self.box_loss = custom_yolo_lib.training.losses.BoxLoss(
             iou_type=custom_yolo_lib.training.losses.BoxLoss.IoUType.CIoU
         )
-        self.objectness_loss = torch.nn.BCELoss()
+        self.objectness_loss = torch.nn.BCELoss(reduction="none")
         self.feature_map_anchors = feature_map_anchors
 
     def _get_targets_in_grid(
@@ -39,7 +39,8 @@ class YOLOLossPerFeatureMap(torch.nn.Module):
                     grid_size_h=grid_size_h,  # NOTE: All anchor outputs have the same shape
                     grid_size_w=grid_size_w,
                     num_classes=self.num_classes,
-                    check_values=True,
+                    check_values=False,
+                    positive_sample_iou_thershold=0.5,
                 )
             )
             targets_in_grid.append(target_in_grid)
@@ -73,10 +74,16 @@ class YOLOLossPerFeatureMap(torch.nn.Module):
             sample_i_target_bboxes = target_bboxes_raw[sample_i][
                 sample_i_target_mask, :
             ]
-            batch_bbox_loss += self.box_loss(
-                sample_i_predicted_bboxes,
-                sample_i_target_bboxes,
-            )
+            # TEMP
+            try:
+                batch_bbox_loss += self.box_loss(
+                    sample_i_predicted_bboxes,
+                    sample_i_target_bboxes,
+                )
+            except:
+                batch_bbox_loss += torch.tensor(
+                    0.0, device=sample_i_predicted_bboxes.device
+                )
         return batch_bbox_loss / predicted_bboxes_raw.shape[0]
 
     def _batch_class_loss(
@@ -147,6 +154,10 @@ class YOLOLossPerFeatureMap(torch.nn.Module):
         ) in enumerate(groups):
             # reshape to (batch_size, grid_size_h * grid_size_w)
             target_mask = targets_mask_anchor.view(batch_size, -1)
+            total_target_objects = target_mask.sum()
+            if total_target_objects == 0:
+                continue  # Skip this anchor if there are no targets (Not sure)
+
             # reshape to (batch_size, grid_size_h * grid_size_w, 4)
             target_bboxes_raw = targets_anchor[:, :4].view(batch_size, -1, 4)
             predicted_bboxes_raw = predictions_anchors[:, :4].view(batch_size, -1, 4)
@@ -156,10 +167,12 @@ class YOLOLossPerFeatureMap(torch.nn.Module):
                 target_bboxes_raw,
                 target_mask,
             )
-            objectness_loss += self.objectness_loss(
+
+            _objectness_loss = self.objectness_loss(
                 predictions_anchors[:, 4],
                 targets_anchor[:, 4],
-            )
+            )  # (batch_size, grid_size_h, grid_size_w)
+            objectness_loss += _objectness_loss.sum() / total_target_objects
 
             class_loss += self._batch_class_loss(
                 target_mask,
