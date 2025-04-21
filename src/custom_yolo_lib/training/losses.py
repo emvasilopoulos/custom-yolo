@@ -48,6 +48,8 @@ class BoxLoss(torch.nn.Module):
         IoU = enum.auto()
         GIoU = enum.auto()
 
+    IOU_THRESHOLD = 0.5
+
     def __init__(self, iou_type: IoUType) -> None:
         super(BoxLoss, self).__init__()
         if iou_type == self.IoUType.CIoU:
@@ -94,4 +96,4 @@ class BoxLoss(torch.nn.Module):
             return torch.tensor(0.0, device=predictions.device)
         iou_scores = self.iou_fn(predictions, targets).squeeze(1)
         loss = 1.0 - iou_scores
-        return loss.mean()
+        return loss.sum()
