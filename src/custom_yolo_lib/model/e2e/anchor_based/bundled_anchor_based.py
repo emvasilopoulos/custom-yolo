@@ -17,7 +17,7 @@ class YOLOModel(torch.nn.Module):
 
     def __init__(self, num_classes: int, training: bool) -> None:
         super(YOLOModel, self).__init__()
-        self.training = training
+        self.__training = training
         self.backbone = ThreeScalesFeatures()
         self.neck = AdditiveNeck()
         self.detect_small = DetectionHead(
@@ -33,23 +33,7 @@ class YOLOModel(torch.nn.Module):
     def forward(self, x: torch.Tensor) -> List[DetectionHeadOutput]:
         small, medium, large = self.backbone(x)
         small, medium, large = self.neck(small, medium, large)
-        out_small = self.detect_small(small, self.training)
-        out_medium = self.detect_medium(medium, self.training)
-        out_large = self.detect_large(large, self.training)
+        out_small = self.detect_small(small, self.__training)
+        out_medium = self.detect_medium(medium, self.__training)
+        out_large = self.detect_large(large, self.__training)
         return out_small, out_medium, out_large
-
-
-if __name__ == "__main__":
-
-    model = YOLOModel(num_classes=80, training=False)
-    x = torch.randn((1, 3, 640, 640))
-    out_small, out_medium, out_large = model(x)
-    print(
-        f"Output small shape: {out_small.anchor1_output.shape}"
-    )  # Should be (1, num_classes + 5, 52, 52)
-    print(
-        f"Output medium shape: {out_medium.anchor2_output.shape}"
-    )  # Should be (1, num_classes + 5, 26, 26)
-    print(
-        f"Output large shape: {out_large.anchor3_output.shape}"
-    )  # Should be (1, num_classes + 5, 13, 13)
