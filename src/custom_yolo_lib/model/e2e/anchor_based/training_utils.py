@@ -118,4 +118,4 @@ def build_feature_map_targets(
             targets[potential_anchor, 5 + class_id, grid_y, grid_x] = 1.0  # class score
 
             targets_mask[potential_anchor, grid_y, grid_x] = True
-        return targets, targets_mask
+    return targets, targets_mask
