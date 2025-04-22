@@ -51,6 +51,9 @@ class BoxLoss(torch.nn.Module):
     IOU_THRESHOLD = 0.5
 
     def __init__(self, iou_type: IoUType) -> None:
+        """
+        NO REDUCTION
+        """
         super(BoxLoss, self).__init__()
         if iou_type == self.IoUType.CIoU:
             self.iou_fn = custom_yolo_lib.process.bbox.metrics.iou.bbox_ciou
@@ -82,18 +85,11 @@ class BoxLoss(torch.nn.Module):
         """
         Args:
             predictions (torch.Tensor): Predicted bounding boxes of shape (N, 4).
-            targets (torch.Tensor): Target bounding boxes of shape (M, 4).
+            targets (torch.Tensor): Target bounding boxes of shape (N, 4).
         Returns:
             torch.Tensor: Loss value.
         """
-        predictions = self._filter(predictions)
-        targets = self._filter(targets)
-        if predictions.shape[0] == 0 and targets.shape[0] > 0:
-            return torch.tensor(1.0, device=predictions.device)
-        if targets.shape[0] == 0 and predictions.shape[0] > 0:
-            return torch.tensor(1.0, device=predictions.device)
-        if predictions.shape[0] == 0 and targets.shape[0] == 0:
-            return torch.tensor(0.0, device=predictions.device)
-        iou_scores = self.iou_fn(predictions, targets).squeeze(1)
-        loss = 1.0 - iou_scores
-        return loss.sum()
+
+        # Adding a small value to avoid division by zero
+        iou_scores = self.iou_fn(predictions.add(1e-7), targets.add(1e-7)).squeeze(1)
+        return 1.0 - iou_scores
