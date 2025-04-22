@@ -13,9 +13,9 @@ class ThreeAnchorCoco(enum.Enum):
 ### Values
 # xywh
 LARGE_MAP_FEATS_ANCHORS_LIST = [
-    [0, 0, 0.2788, 0.2163],
-    [0, 0, 0.3750, 0.4760],
-    [0, 0, 0.8966, 0.7837],
+    [0, 0, 0.29, 0.23],
+    [0, 0, 0.39, 0.49],
+    [0, 0, 0.9, 0.80],
 ]
 _L_A1 = custom_yolo_lib.process.bbox.Bbox(
     *LARGE_MAP_FEATS_ANCHORS_LIST[0], is_normalized=True, is_top_left=True
@@ -28,9 +28,9 @@ _L_A3 = custom_yolo_lib.process.bbox.Bbox(
 )
 
 MEDIUM_MAP_FEATS_ANCHORS_LIST = [
-    [0.0, 0.0, 0.0721, 0.1466],
-    [0.0, 0.0, 0.1490, 0.1082],
-    [0.0, 0.0, 0.1418, 0.2861],
+    [0.0, 0.0, 0.08, 0.16],
+    [0.0, 0.0, 0.16, 0.12],
+    [0.0, 0.0, 0.16, 0.30],
 ]
 _M_A1 = custom_yolo_lib.process.bbox.Bbox(
     *MEDIUM_MAP_FEATS_ANCHORS_LIST[0], is_normalized=True, is_top_left=True
@@ -43,9 +43,9 @@ _M_A3 = custom_yolo_lib.process.bbox.Bbox(
 )
 
 SMALL_MAP_FEATS_ANCHORS_LIST = [
-    [0, 0, 0.0240, 0.0312],
-    [0, 0, 0.0385, 0.0721],
-    [0, 0, 0.0793, 0.0553],
+    [0, 0, 0.03, 0.04],
+    [0, 0, 0.05, 0.09],
+    [0, 0, 0.09, 0.07],
 ]
 _S_A1 = custom_yolo_lib.process.bbox.Bbox(
     *SMALL_MAP_FEATS_ANCHORS_LIST[0], is_normalized=True, is_top_left=True
