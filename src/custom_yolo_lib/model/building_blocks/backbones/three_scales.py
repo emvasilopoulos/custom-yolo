@@ -1,8 +1,6 @@
 import torch
 
-from custom_yolo_lib.model.building_blocks.backbones.vanilla_cnn import ConvBlock
-from custom_yolo_lib.model.building_blocks.conv_block import ResidualBlock
-from custom_yolo_lib.model.building_blocks.necks.additive import AdditiveNeck
+from custom_yolo_lib.model.building_blocks.conv_block import ConvBlock, ResidualBlock
 
 
 class ThreeScalesFeatures(torch.nn.Module):
@@ -36,25 +34,3 @@ class ThreeScalesFeatures(torch.nn.Module):
         medium_feature = self.layer4(small_feature)
         large_feature = self.layer5(medium_feature)
         return small_feature, medium_feature, large_feature
-
-
-# Example usage
-if __name__ == "__main__":
-    model = ThreeScalesFeatures()
-    x = torch.randn((1, 3, 416, 416))
-    small, medium, large = model(x)
-    print(f"Small feature map shape: {small.shape}")  # Should be (1, 256, 52, 52)
-    print(f"Medium feature map shape: {medium.shape}")  # Should be (1, 512, 26, 26)
-    print(f"Large feature map shape: {large.shape}")  # Should be (1, 1024, 13, 13)
-
-    neck = AdditiveNeck()
-    small, medium, large = neck(small, medium, large)
-    print(
-        f"Small feature map shape after neck: {small.shape}"
-    )  # Should be (1, 128, 52, 52)
-    print(
-        f"Medium feature map shape after neck: {medium.shape}"
-    )  # Should be (1, 256, 26, 26)
-    print(
-        f"Large feature map shape after neck: {large.shape}"
-    )  # Should be (1, 512, 13, 13)

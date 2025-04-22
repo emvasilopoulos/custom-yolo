@@ -1,7 +1,7 @@
 import torch
 
 from custom_yolo_lib.model.building_blocks.backbones.three_scales import ResidualBlock
-from custom_yolo_lib.model.building_blocks.backbones.vanilla_cnn import ConvBlock
+from custom_yolo_lib.model.building_blocks.conv_block import ConvBlock
 
 
 class Darknet53Backbone(torch.nn.Module):
