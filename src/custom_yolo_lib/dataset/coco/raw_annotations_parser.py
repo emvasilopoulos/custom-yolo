@@ -44,3 +44,39 @@ class RawCOCOAnnotationsParser:
                 self.objects_by_image_id[image_id] = []
             self.objects_by_image_id[image_id].append(annotation)
         return self.objects_by_image_id
+
+
+def sama_coco_to_original_coco(
+    annotations_dir_path: pathlib.Path,
+) -> None:
+    """
+    Args:
+        annotations_dir_path (pathlib.Path): Path to the directory containing the annotations files, which are separated into parts. For example,
+        sama_coco_coco_format_val_0.json, sama_coco_coco_format_val_1.json, etc.
+    """
+    annotations_parts_path = list(annotations_dir_path.glob("*.json"))
+    if len(annotations_parts_path) < 1:
+        raise ValueError(
+            f"Annotations path {annotations_dir_path} does not contain any json files."
+        )
+    combined_annotations = {
+        "info": {},
+        "licenses": [],
+        "categories": [],
+        "images": [],
+        "annotations": [],
+    }
+    for annotations_part_path in annotations_parts_path:
+        with open(annotations_part_path, "r") as f:
+            annotations_part = json.load(f)
+        if combined_annotations["info"] == {}:
+            combined_annotations["info"] = annotations_part["info"]
+        if combined_annotations["licenses"] == []:
+            combined_annotations["licenses"] = annotations_part["licenses"]
+        combined_annotations["licenses"].extend(annotations_part["licenses"])
+        combined_annotations["categories"].extend(annotations_part["categories"])
+        combined_annotations["images"].extend(annotations_part["images"])
+        combined_annotations["annotations"].extend(annotations_part["annotations"])
+    output_path = annotations_dir_path / f"combined.json"
+    with open(output_path, "w") as f:
+        json.dump(combined_annotations, f)
