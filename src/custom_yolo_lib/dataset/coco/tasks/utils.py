@@ -11,7 +11,12 @@ class AnnotationsType(enum.Enum):
 
 
 def get_task_file(
-    task_name: str, split: str, year: str, is_grouped: bool, filetype: AnnotationsType
+    task_name: str,
+    split: str,
+    year: str,
+    is_grouped: bool,
+    filetype: AnnotationsType,
+    is_sama: bool = False,
 ) -> str:
     """
     Get the task file path based on the task name, split, and year.
@@ -24,9 +29,14 @@ def get_task_file(
     Returns:
         str: The path to the task file.
     """
+    if is_sama:
+        prefix = "sama_"
+    else:
+        prefix = ""
     if is_grouped:
-        return f"{task_name}_{split}{year}_grouped_by_image_id.{filetype.value}"
-    return f"{task_name}_{split}{year}.{filetype.value}"
+        return f"{prefix}{task_name}_{split}{year}_grouped_by_image_id.{filetype.value}"
+
+    return f"{prefix}{task_name}_{split}{year}.{filetype.value}"
 
 
 def create_empty_coco_object_tensor(

@@ -68,6 +68,7 @@ class BaseCOCODatasetGrouped(torch.utils.data.Dataset):
         expected_image_size: custom_yolo_lib.image_size.ImageSize,
         classes: List[str] = None,
         dtype: torch.dtype = torch.float32,
+        is_sama: bool = True,  # the oriinal is CRAP
     ):
         """
         Args:
@@ -107,6 +108,7 @@ class BaseCOCODatasetGrouped(torch.utils.data.Dataset):
                 str(year),
                 is_grouped=True,
                 filetype=custom_yolo_lib.dataset.coco.tasks.utils.AnnotationsType.csv,
+                is_sama=is_sama,
             )
         )
 
@@ -153,10 +155,10 @@ class BaseCOCODatasetGrouped(torch.utils.data.Dataset):
         padding_percent: float,
         pad_value: int,
     ) -> List[custom_yolo_lib.dataset.object.Object]:
-        if len(objects) > MAX_OBJECTS_PER_IMAGE:
-            raise ValueError(
-                f"Number of objects {len(objects)} exceeds maximum {MAX_OBJECTS_PER_IMAGE}."
-            )
+        # if len(objects) > MAX_OBJECTS_PER_IMAGE:
+        #     raise ValueError(
+        #         f"Number of objects {len(objects)} exceeds maximum {MAX_OBJECTS_PER_IMAGE}."
+        #     )
         # Resize bboxes to match resized image
         resize_components, padding = (
             resize_fixed_ratio_components.get_translation_components(
@@ -264,7 +266,7 @@ class BaseCOCODatasetGrouped(torch.utils.data.Dataset):
             COCODatasetSampleKeys.IMAGE_TENSOR: standard_resized_img_tensor,
             COCODatasetSampleKeys.OBJECTS_TENSOR: objects_tensor,
             COCODatasetSampleKeys.OBJECTS_COUNT: torch.tensor(
-                [len(objects)], dtype=torch.uint8
+                [len(objects)], dtype=torch.uint16
             ),
         }
 
