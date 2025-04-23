@@ -28,6 +28,9 @@ class COCOInstances2017(
         # TODO: replace with dictionary search
         return 0 < class_id < len(self.desired_classes)
 
+    def _norm(self, coord: float, dim_size: int) -> float:
+        return max(0, min(1, coord / dim_size))
+
     def _extract_objects(
         self, sample: pd.DataFrame, image_size: custom_yolo_lib.image_size.ImageSize
     ):
@@ -46,11 +49,12 @@ class COCOInstances2017(
 
             if is_crowd:
                 continue
+
             bbox = custom_yolo_lib.process.bbox.Bbox(
-                x=x1 / image_size.width,
-                y=y1 / image_size.height,
-                w=w / image_size.width,
-                h=h / image_size.height,
+                x=self._norm(x1, image_size.width),
+                y=self._norm(y1, image_size.height),
+                w=self._norm(w, image_size.width),
+                h=self._norm(h, image_size.height),
                 is_normalized=True,
             )
             objects_.append(
