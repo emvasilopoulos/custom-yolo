@@ -82,14 +82,14 @@ class YOLOLossPerFeatureMapV2(torch.nn.Module):
             # anchor_pred_objectnesses = anchor_predictions[:, 4, :]
             anchor_target_objectnesses = anchor_targets[:, 4, :]
 
-            batch_loss_weights = anchor_target_objectnesses
-
             anchor_num_objects = anchor_targets_mask.sum()  # batch
             if anchor_num_objects == 0:
                 continue
 
+            batch_loss_weights = anchor_target_objectnesses
+
             # BBox loss
-            anchor_pred_bboxes = anchor_predictions[:, :4, :].permute(0, 2, 1)
+            anchor_pred_bboxes = anchor_predictions[:, :4, :].permute(0, 2, 1).sigmoid()
             anchor_target_bboxes = anchor_targets[:, :4, :].permute(0, 2, 1)
             batch_bbox_loss.append(
                 _batch_bbox_loss(
@@ -108,17 +108,28 @@ class YOLOLossPerFeatureMapV2(torch.nn.Module):
                 self.class_loss(anchor_pred_class_scores, anchor_target_class_scores)
             )
         # mean across anchors
-        batch_box_loss = torch.stack(batch_bbox_loss, dim=1).mean(dim=1)
-        batch_cls_loss = torch.stack(batch_cls_loss, dim=1).mean(dim=1)
-        batch_objectness_loss = batch_obj_loss.mean(dim=1)
+        batch_box_loss = torch.stack(batch_bbox_loss, dim=1).mean(
+            dim=1
+        )  # (batch_size, grid_h * grid_w)
+        batch_cls_loss = torch.stack(batch_cls_loss, dim=1).mean(
+            dim=1
+        )  # (batch_size, num_classes, grid_h * grid_w)
+        batch_objectness_loss = batch_obj_loss.mean(
+            dim=1
+        )  # (batch_size, grid_h * grid_w)
 
         # gain
         batch_box_loss.mul_(5.0)
         batch_objectness_loss.mul_(0.4)
         batch_cls_loss.mul_(1.0)
 
-        total_loss = batch_box_loss + batch_objectness_loss + batch_cls_loss
-        return total_loss, (batch_box_loss, batch_objectness_loss, batch_cls_loss)
+        # reduce - mean across batch_size - sum across grid_h * grid_w & num_classes
+        final_bbox_loss = batch_box_loss.sum(1).mean()
+        final_objectness_loss = batch_objectness_loss.sum(1).mean()
+        final_class_loss = batch_cls_loss.sum(1).sum(1).mean()
+
+        total_loss = final_bbox_loss + final_objectness_loss + final_class_loss
+        return total_loss, (final_bbox_loss, final_objectness_loss, final_class_loss)
 
 
 def _batch_bbox_loss(
