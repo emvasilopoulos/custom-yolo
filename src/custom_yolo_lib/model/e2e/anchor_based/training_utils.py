@@ -58,7 +58,7 @@ def build_feature_map_targets(
     grid_size_w: int,
     num_classes: int,
     check_values: bool = False,
-    positive_sample_iou_thershold: float = 0.5,
+    positive_sample_iou_thershold: float = 0.15,  # don't care if iou is low as long as I skip t_w and t_h if > 1
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     anchors = anchor_tensor.anchors
     num_anchors = anchors.shape[0]
@@ -74,28 +74,28 @@ def build_feature_map_targets(
         device=annotations.device,
     )
 
-    for obj in annotations:
+    for i, obj in enumerate(annotations):
         bx, by, bw, bh, class_id = obj  # YOLOv2 naming convention | zero based class_id
         box = torch.tensor([0, 0, bw, bh], device=annotations.device)
         ious = custom_yolo_lib.process.bbox.utils.calculate_iou_tensors(box, anchors)
-        for anchor_i in range(num_anchors):
-            # Filter anchors
-            if ious[anchor_i] < positive_sample_iou_thershold:
-                continue
+        anchor_i = torch.argmax(ious)
+
+        if ious[anchor_i] < positive_sample_iou_thershold:
+            continue
+
+        grid_x = int(bx * grid_size_w)
+        grid_y = int(by * grid_size_h)
+        objectness_score = ious[anchor_i]
+        if targets[anchor_i, 4, grid_y, grid_x] < objectness_score:
             potential_anchor = anchor_i
             """ NOTE: matches with custom_yolo_lib.model.building_blocks.heads.detections_3_anchors.decode_output """
-            t_w = torch.sqrt(
-                bw / anchors[potential_anchor, 2]
-            )  # Encode with sqrt instead of log to ensure more anchors in range [0, 1]
-            t_h = torch.sqrt(bh / anchors[potential_anchor, 3])
+            t_w = torch.sqrt(bw / anchors[potential_anchor, 2]) / 2
+            t_h = torch.sqrt(bh / anchors[potential_anchor, 3]) / 2
             if t_w > 1 or t_h > 1:
-                # This anchor is not good enough
+                print("Warning: large t_w or t_h, skipping")
                 continue
 
             class_id = int(class_id)
-            grid_x = int(bx * grid_size_w)
-            grid_y = int(by * grid_size_h)
-            objectness = ious[potential_anchor]
 
             # Fill the target
             targets[potential_anchor, 0, grid_y, grid_x] = (
@@ -114,7 +114,9 @@ def build_feature_map_targets(
 
             targets[potential_anchor, 2, grid_y, grid_x] = t_w
             targets[potential_anchor, 3, grid_y, grid_x] = t_h
-            targets[potential_anchor, 4, grid_y, grid_x] = objectness  # objectness
+            targets[potential_anchor, 4, grid_y, grid_x] = (
+                objectness_score  # objectness
+            )
             targets[potential_anchor, 5 + class_id, grid_y, grid_x] = 1.0  # class score
 
             targets_mask[potential_anchor, grid_y, grid_x] = True
