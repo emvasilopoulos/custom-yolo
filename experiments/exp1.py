@@ -5,25 +5,22 @@ import torch
 import tqdm
 import pandas as pd
 
-import custom_yolo_lib.experiments_utils
-import custom_yolo_lib.training.utils
-import custom_yolo_lib.training.lr_scheduler
-import custom_yolo_lib.image_size
-import custom_yolo_lib.model.e2e.anchor_based.bundled_anchor_based
 import custom_yolo_lib.dataset.coco.tasks.instances
 import custom_yolo_lib.dataset.coco.tasks.loader
-
-from custom_yolo_lib.dataset.coco.constants import MEDIUM_AREA_RANGE, SMALL_AREA_RANGE
+import custom_yolo_lib.experiments_utils
+import custom_yolo_lib.image_size
+import custom_yolo_lib.model.e2e.anchor_based.bundled_anchor_based
 import custom_yolo_lib.model.e2e.anchor_based.loss
 import custom_yolo_lib.model.e2e.anchor_based.training_utils
-import custom_yolo_lib.dataset.coco.tasks.loader
+import custom_yolo_lib.training.utils
+import custom_yolo_lib.training.lr_scheduler
 
 torch.manual_seed(42)
 
 EXPERIMENT_NAME = "exp1"
 EPOCHS = 300
 NUM_CLASSES = 80
-LR = 0.0015
+LR = 0.001
 MOMENTUM = 0.937
 DECAY = 0.001
 BATCH_SIZE = 8
@@ -56,23 +53,36 @@ def init_optimizer(
     return optimizer
 
 
-def init_losses(device: torch.device):
+def init_losses(
+    model: custom_yolo_lib.model.e2e.anchor_based.bundled_anchor_based.YOLOModel,
+    device: torch.device,
+):
+    predictions_s, predictions_m, predictions_l = model.train_forward2(
+        torch.zeros((1, 3, IMAGE_SIZE.height, IMAGE_SIZE.width)).to(device)
+    )
+
     small_map_anchors, medium_map_anchors, large_map_anchors = (
         custom_yolo_lib.model.e2e.anchor_based.training_utils.get_anchors_as_bbox_tensors(
             device
         )
     )
-    loss_s = custom_yolo_lib.model.e2e.anchor_based.loss.YOLOLossPerFeatureMap(
+    loss_s = custom_yolo_lib.model.e2e.anchor_based.loss.YOLOLossPerFeatureMapV2(
         num_classes=NUM_CLASSES,
         feature_map_anchors=small_map_anchors,
+        grid_size_h=predictions_s.shape[3],
+        grid_size_w=predictions_s.shape[4],
     )
-    loss_m = custom_yolo_lib.model.e2e.anchor_based.loss.YOLOLossPerFeatureMap(
+    loss_m = custom_yolo_lib.model.e2e.anchor_based.loss.YOLOLossPerFeatureMapV2(
         num_classes=NUM_CLASSES,
         feature_map_anchors=medium_map_anchors,
+        grid_size_h=predictions_m.shape[3],
+        grid_size_w=predictions_m.shape[4],
     )
-    loss_l = custom_yolo_lib.model.e2e.anchor_based.loss.YOLOLossPerFeatureMap(
+    loss_l = custom_yolo_lib.model.e2e.anchor_based.loss.YOLOLossPerFeatureMapV2(
         num_classes=NUM_CLASSES,
         feature_map_anchors=large_map_anchors,
+        grid_size_h=predictions_l.shape[3],
+        grid_size_w=predictions_l.shape[4],
     )
     return loss_s, loss_m, loss_l
 
@@ -115,9 +125,9 @@ def train_one_epoch(
     training_loader: torch.utils.data.DataLoader,
     optimizer: torch.optim.Optimizer,
     scheduler: custom_yolo_lib.training.lr_scheduler.StepLRScheduler,
-    loss_s: custom_yolo_lib.model.e2e.anchor_based.loss.YOLOLossPerFeatureMap,
-    loss_m: custom_yolo_lib.model.e2e.anchor_based.loss.YOLOLossPerFeatureMap,
-    loss_l: custom_yolo_lib.model.e2e.anchor_based.loss.YOLOLossPerFeatureMap,
+    loss_s: custom_yolo_lib.model.e2e.anchor_based.loss.YOLOLossPerFeatureMapV2,
+    loss_m: custom_yolo_lib.model.e2e.anchor_based.loss.YOLOLossPerFeatureMapV2,
+    loss_l: custom_yolo_lib.model.e2e.anchor_based.loss.YOLOLossPerFeatureMapV2,
     epoch: int,
     training_step: int,
     experiment_path: pathlib.Path,
@@ -143,12 +153,16 @@ def train_one_epoch(
         targets_l = [t.to(device) for t in coco_batch.large_objects_batch]
 
         optimizer.zero_grad()
-        predictions_s, predictions_m, predictions_l = model(images)
+
+        predictions_s, predictions_m, predictions_l = model.train_forward2(images)
 
         loss_s_ = loss_s(predictions_s, targets_s)
         loss_m_ = loss_m(predictions_m, targets_m)
         loss_l_ = loss_l(predictions_l, targets_l)
         loss = (loss_s_[3] + loss_m_[3] + loss_l_[3]) / 3
+        if loss == 0:
+            print("Loss is zero, skipping step")
+            continue
         loss.backward()
 
         scheduler.update_loss(loss)
@@ -213,7 +227,7 @@ def validate_one_epoch(
             targets_s = [t.to(device) for t in coco_batch.small_objects_batch]
             targets_m = [t.to(device) for t in coco_batch.medium_objects_batch]
             targets_l = [t.to(device) for t in coco_batch.large_objects_batch]
-            predictions_s, predictions_m, predictions_l = model(images)
+            predictions_s, predictions_m, predictions_l = model.train_forward2(images)
 
             loss_s_ = loss_s(predictions_s, targets_s)
             loss_m_ = loss_m(predictions_m, targets_m)
@@ -266,6 +280,20 @@ def session_loop(
     min_mean_val_loss = float("inf")
     for epoch in range(EPOCHS):
 
+        training_step = train_one_epoch(
+            model,
+            training_loader,
+            optimizer,
+            scheduler,
+            loss_s,
+            loss_m,
+            loss_l,
+            epoch,
+            training_step,
+            experiment_path,
+            device,
+        )
+
         validation_step, mean_val_loss = validate_one_epoch(
             model,
             validation_loader,
@@ -288,20 +316,6 @@ def session_loop(
         model_path = experiment_path / f"model_last.pth"
         torch.save(model_state, model_path.as_posix())
 
-        training_step = train_one_epoch(
-            model,
-            training_loader,
-            optimizer,
-            scheduler,
-            loss_s,
-            loss_m,
-            loss_l,
-            epoch,
-            training_step,
-            experiment_path,
-            device,
-        )
-
 
 def main(dataset_path: pathlib.Path, experiment_path: pathlib.Path):
     experiment_path = custom_yolo_lib.experiments_utils.make_experiment_dir(
@@ -318,7 +332,8 @@ def main(dataset_path: pathlib.Path, experiment_path: pathlib.Path):
         optimizer, update_step_size=10000
     )
     training_loader, validation_loader = init_dataloaders(dataset_path)
-    loss_s, loss_m, loss_l = init_losses(device)
+    # loss_s, loss_m, loss_l = init_losses(device)
+    loss_s, loss_m, loss_l = init_losses(model, device)
 
     session_loop(
         model,
@@ -346,7 +361,8 @@ def parse_args():
     parser.add_argument(
         "--experiment_path",
         type=str,
-        required=True,
+        # required=True,
+        default="/home/manos/custom-yolo/experiments",
         help="Path to the experiment directory",
     )
 
