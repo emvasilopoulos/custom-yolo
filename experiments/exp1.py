@@ -156,10 +156,10 @@ def train_one_epoch(
 
         predictions_s, predictions_m, predictions_l = model.train_forward2(images)
 
-        loss_s_ = loss_s(predictions_s, targets_s)
-        loss_m_ = loss_m(predictions_m, targets_m)
-        loss_l_ = loss_l(predictions_l, targets_l)
-        loss = (loss_s_[3] + loss_m_[3] + loss_l_[3]) / 3
+        total_loss_s, losses_s = loss_s(predictions_s, targets_s)
+        total_loss_m, losses_m = loss_m(predictions_m, targets_m)
+        total_loss_l, losses_l = loss_l(predictions_l, targets_l)
+        loss = (total_loss_s + total_loss_m + total_loss_l) / 3
         if loss == 0:
             print("Loss is zero, skipping step")
             continue
@@ -168,9 +168,9 @@ def train_one_epoch(
         scheduler.update_loss(loss)
         optimizer.step()
 
-        avg_bbox_loss = (loss_s_[0] + loss_m_[0] + loss_l_[0]) / 3
-        avg_objectness_loss = (loss_s_[1] + loss_m_[1] + loss_l_[1]) / 3
-        avg_class_loss = (loss_s_[2] + loss_m_[2] + loss_l_[2]) / 3
+        avg_bbox_loss = (losses_s[0] + losses_m[0] + losses_l[0]) / 3
+        avg_objectness_loss = (losses_s[1] + losses_m[1] + losses_l[1]) / 3
+        avg_class_loss = (losses_s[2] + losses_m[2] + losses_l[2]) / 3
         tqdm_obj.set_description(
             f"Total: {loss.item():.4f} | BBox: {avg_bbox_loss.item():.4f} | Obj: {avg_objectness_loss.item():.4f} | Class: {avg_class_loss.item():.4f}"
         )
@@ -196,9 +196,9 @@ def train_one_epoch(
 def validate_one_epoch(
     model: custom_yolo_lib.model.e2e.anchor_based.bundled_anchor_based.YOLOModel,
     validation_loader: torch.utils.data.DataLoader,
-    loss_s: custom_yolo_lib.model.e2e.anchor_based.loss.YOLOLossPerFeatureMap,
-    loss_m: custom_yolo_lib.model.e2e.anchor_based.loss.YOLOLossPerFeatureMap,
-    loss_l: custom_yolo_lib.model.e2e.anchor_based.loss.YOLOLossPerFeatureMap,
+    loss_s: custom_yolo_lib.model.e2e.anchor_based.loss.YOLOLossPerFeatureMapV2,
+    loss_m: custom_yolo_lib.model.e2e.anchor_based.loss.YOLOLossPerFeatureMapV2,
+    loss_l: custom_yolo_lib.model.e2e.anchor_based.loss.YOLOLossPerFeatureMapV2,
     epoch: int,
     validation_step: int,
     experiment_path: pathlib.Path,
@@ -229,14 +229,15 @@ def validate_one_epoch(
             targets_l = [t.to(device) for t in coco_batch.large_objects_batch]
             predictions_s, predictions_m, predictions_l = model.train_forward2(images)
 
-            loss_s_ = loss_s(predictions_s, targets_s)
-            loss_m_ = loss_m(predictions_m, targets_m)
-            loss_l_ = loss_l(predictions_l, targets_l)
+            total_loss_s, losses_s = loss_s(predictions_s, targets_s)
+            total_loss_m, losses_m = loss_m(predictions_m, targets_m)
+            total_loss_l, losses_l = loss_l(predictions_l, targets_l)
+            loss = (total_loss_s + total_loss_m + total_loss_l) / 3
 
-            loss = (loss_s_[3] + loss_m_[3] + loss_l_[3]) / 3
-            avg_bbox_loss = (loss_s_[0] + loss_m_[0] + loss_l_[0]) / 3
-            avg_objectness_loss = (loss_s_[1] + loss_m_[1] + loss_l_[1]) / 3
-            avg_class_loss = (loss_s_[2] + loss_m_[2] + loss_l_[2]) / 3
+            loss = (losses_s[3] + losses_m[3] + losses_l[3]) / 3
+            avg_bbox_loss = (losses_s[0] + losses_m[0] + losses_l[0]) / 3
+            avg_objectness_loss = (losses_s[1] + losses_m[1] + losses_l[1]) / 3
+            avg_class_loss = (losses_s[2] + losses_m[2] + losses_l[2]) / 3
             tqdm_obj.set_description(
                 f"Total: {loss.item():.4f} | BBox: {avg_bbox_loss.item():.4f} | Obj: {avg_objectness_loss.item():.4f} | Class: {avg_class_loss.item():.4f}"
             )
@@ -268,9 +269,9 @@ def session_loop(
     validation_loader: torch.utils.data.DataLoader,
     optimizer: torch.optim.Optimizer,
     scheduler: custom_yolo_lib.training.lr_scheduler.StepLRScheduler,
-    loss_s: custom_yolo_lib.model.e2e.anchor_based.loss.YOLOLossPerFeatureMap,
-    loss_m: custom_yolo_lib.model.e2e.anchor_based.loss.YOLOLossPerFeatureMap,
-    loss_l: custom_yolo_lib.model.e2e.anchor_based.loss.YOLOLossPerFeatureMap,
+    loss_s: custom_yolo_lib.model.e2e.anchor_based.loss.YOLOLossPerFeatureMapV2,
+    loss_m: custom_yolo_lib.model.e2e.anchor_based.loss.YOLOLossPerFeatureMapV2,
+    loss_l: custom_yolo_lib.model.e2e.anchor_based.loss.YOLOLossPerFeatureMapV2,
     experiment_path: pathlib.Path,
     device: torch.device = torch.device("cuda:0"),
 ):
