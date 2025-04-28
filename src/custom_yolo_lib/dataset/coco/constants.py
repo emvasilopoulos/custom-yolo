@@ -1,8 +1,12 @@
 from typing import Dict
 
-SMALL_AREA_RANGE = [0, 0.0025]
-MEDIUM_AREA_RANGE = [SMALL_AREA_RANGE[0], 0.0225]
-LARGE_AREA_RANGE = [MEDIUM_AREA_RANGE[0], 1]
+""" NOTE: see anchors_3_coco.py """
+SMALL_AREA_RANGE = [0, 0.008]  # extracted from biggest SMALL_MAP_FEATS_ANCHORS_LIST
+MEDIUM_AREA_RANGE = [
+    SMALL_AREA_RANGE[0],
+    0.04,
+]  # extracted from biggest MEDIUM_MAP_FEATS_ANCHORS_LIST
+LARGE_AREA_RANGE = [MEDIUM_AREA_RANGE[0], 1]  # the rest
 
 COCO_CLASSES: Dict[int, str] = {
     0: "background",
