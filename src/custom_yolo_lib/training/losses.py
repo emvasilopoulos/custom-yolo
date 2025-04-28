@@ -9,35 +9,42 @@ class FocalLoss(torch.nn.Module):
         self, alpha: float = 0.25, gamma: float = 1.5, reduction: str = "mean"
     ):
         super().__init__()
-
         self.alpha = alpha
         self.gamma = gamma
         self.reduction = reduction
 
-    def forward(self, predictions: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
-        p = predictions.clone()
-        ce_loss = torch.nn.functional.binary_cross_entropy(
-            predictions, targets, reduction="none"
+    def forward(self, logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+        # BCE with logits for better numerical stability
+        bce_loss = torch.nn.functional.binary_cross_entropy_with_logits(
+            logits, targets, reduction="none"
         )
-        p_t = p * targets + (1 - p) * (1 - targets)
-        loss = ce_loss * ((1 - p_t) ** self.gamma)
 
+        # Probabilities for the correct class
+        p_t = torch.sigmoid(logits) * targets + (1 - torch.sigmoid(logits)) * (
+            1 - targets
+        )
+
+        # Modulating factor
+        focal_term = (1 - p_t) ** self.gamma
+
+        # Alpha balancing
         if self.alpha >= 0:
             alpha_t = self.alpha * targets + (1 - self.alpha) * (1 - targets)
-            loss = alpha_t * loss
+            focal_loss = alpha_t * focal_term * bce_loss
+        else:
+            focal_loss = focal_term * bce_loss
 
-        # Check reduction option and return loss accordingly
-        if self.reduction == "none":
-            pass
-        elif self.reduction == "mean":
-            loss = loss.mean()
+        # Apply reduction
+        if self.reduction == "mean":
+            return focal_loss.mean()
         elif self.reduction == "sum":
-            loss = loss.sum()
+            return focal_loss.sum()
+        elif self.reduction == "none":
+            return focal_loss
         else:
             raise ValueError(
-                f"Invalid Value for arg 'self.reduction': '{self.reduction} \n Supported reduction modes: 'none', 'mean', 'sum'"
+                f"Invalid reduction: {self.reduction}. Supported: 'none', 'mean', 'sum'."
             )
-        return loss
 
 
 class BoxLoss(torch.nn.Module):
