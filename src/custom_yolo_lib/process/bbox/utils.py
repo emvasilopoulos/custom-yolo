@@ -18,6 +18,8 @@ def calculate_iou(
 
 def calculate_iou_tensors(bbox1: torch.Tensor, bbox2: torch.Tensor) -> torch.Tensor:
     """
+    Assumes both bbox1 and bbox2 start at the same origin (0, 0) and are in the format (x, y, w, h).
+
     Calculate Intersection over Union (IoU) for two sets of bounding boxes.
 
     Args:
