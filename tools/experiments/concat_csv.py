@@ -1,4 +1,5 @@
 import argparse
+import pathlib
 
 import pandas as pd
 
@@ -6,7 +7,13 @@ import pandas as pd
 def parse_args():
     parser = argparse.ArgumentParser(description="Concatenate CSV files.")
     parser.add_argument(
-        "input_files", nargs="+", help="List of input CSV files to concatenate."
+        "--csv_dir", type=str, help="List of input CSV files to concatenate."
+    )
+    parser.add_argument(
+        "--csv_file_template",
+        type=str,
+        required=True,
+        help="Input CSV file name.",
     )
     parser.add_argument(
         "--output_file",
@@ -17,7 +24,9 @@ def parse_args():
     return parser.parse_args()
 
 
-def concatenate_csv(input_files, output_file):
+def concatenate_csv(
+    csv_dir: pathlib.Path, csv_file_template: str, output_file: pathlib.Path
+):
     """
     Concatenate multiple CSV files into a single CSV file.
 
@@ -25,8 +34,18 @@ def concatenate_csv(input_files, output_file):
         input_files (list): List of input CSV file paths.
         output_file (str): Output CSV file path.
     """
+    input_files = []
+    epoch = 0
+    while 1:
+        csv_path = csv_dir / f"{csv_file_template}_{epoch}.csv"
+        if not csv_path.exists():
+            break
+        input_files.append(csv_path)
+        epoch += 1
+
+    print(input_files)
     # Read and concatenate the CSV files
-    dataframes = [pd.read_csv(file) for file in input_files]
+    dataframes = [pd.read_csv(file.as_posix()) for file in input_files]
     concatenated_df = pd.concat(dataframes, ignore_index=True)
 
     # Save the concatenated DataFrame to a new CSV file
@@ -36,4 +55,8 @@ def concatenate_csv(input_files, output_file):
 
 if __name__ == "__main__":
     args = parse_args()
-    concatenate_csv(args.input_files, args.output_file)
+    concatenate_csv(
+        pathlib.Path(args.csv_dir),
+        args.csv_file_template,
+        pathlib.Path(args.output_file),
+    )

@@ -43,7 +43,7 @@ def plot_csv(input_file, output_file):
         title="Losses",
         xlabel=x_axis_name,
         ylabel="Loss",
-        ylim=(0, 5),
+        ylim=(0, 100),
         grid=True,
         figsize=(25, 10),
     )
