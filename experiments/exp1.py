@@ -234,7 +234,7 @@ def validate_one_epoch(
             total_loss_l, losses_l = loss_l(predictions_l, targets_l)
             loss = (total_loss_s + total_loss_m + total_loss_l) / 3
 
-            loss = (losses_s[3] + losses_m[3] + losses_l[3]) / 3
+            loss = (total_loss_s + total_loss_m + total_loss_l) / 3
             avg_bbox_loss = (losses_s[0] + losses_m[0] + losses_l[0]) / 3
             avg_objectness_loss = (losses_s[1] + losses_m[1] + losses_l[1]) / 3
             avg_class_loss = (losses_s[2] + losses_m[2] + losses_l[2]) / 3
