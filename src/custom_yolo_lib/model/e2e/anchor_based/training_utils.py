@@ -58,7 +58,7 @@ def build_feature_map_targets(
     grid_size_w: int,
     num_classes: int,
     check_values: bool = False,
-    positive_sample_iou_thershold: float = 0.15,  # don't care if iou is low as long as I skip t_w and t_h if > 1
+    positive_sample_iou_thershold: float = 0.3,  # don't care if iou is low as long as I skip t_w and t_h if > 1
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     anchors = anchor_tensor.anchors
     num_anchors = anchors.shape[0]
@@ -86,38 +86,99 @@ def build_feature_map_targets(
         grid_x = int(bx * grid_size_w)
         grid_y = int(by * grid_size_h)
         objectness_score = ious[anchor_i]
+
+        # replace with better object
         if targets[anchor_i, 4, grid_y, grid_x] < objectness_score:
-            potential_anchor = anchor_i
-            """ NOTE: matches with custom_yolo_lib.model.building_blocks.heads.detections_3_anchors.decode_output """
-            t_w = torch.sqrt(bw / anchors[potential_anchor, 2]) / 2
-            t_h = torch.sqrt(bh / anchors[potential_anchor, 3]) / 2
-            if t_w > 1 or t_h > 1:
-                print("Warning: large t_w or t_h, skipping")
-                continue
 
-            class_id = int(class_id)
-
-            # Fill the target
-            targets[potential_anchor, 0, grid_y, grid_x] = (
-                bx * grid_size_w - grid_x
-            )  # x offset inside cell | example if x=0.5, grid_size=13, grid_x=6 then in grid cell x offset is 0.5*13-6=0.5
-            targets[potential_anchor, 1, grid_y, grid_x] = (
-                by * grid_size_h - grid_y
-            )  # y offset inside cell
+            # bbox
+            # x offset inside cell | example if x=0.5, grid_size=13, grid_x=6 then in grid cell x offset is 0.5*13-6=0.5
+            targets[anchor_i, 0, grid_y, grid_x] = bx * grid_size_w - grid_x
+            # y offset inside cell
+            targets[anchor_i, 1, grid_y, grid_x] = by * grid_size_h - grid_y
+            targets[anchor_i, 2, grid_y, grid_x] = bw
+            targets[anchor_i, 3, grid_y, grid_x] = bh
             if check_values:
-                assert (targets[potential_anchor, 0, grid_y, grid_x] <= 1).all()
-                assert (0 <= targets[potential_anchor, 0, grid_y, grid_x]).all()
-                assert (targets[potential_anchor, 1, grid_y, grid_x] <= 1).all()
-                assert (0 <= targets[potential_anchor, 1, grid_y, grid_x]).all()
-                assert 0 <= t_w <= 1  # fails with bad anchor
-                assert 0 <= t_h <= 1  # fails with bad anchor
+                assert (targets[anchor_i, 0, grid_y, grid_x] <= 1).all()
+                assert (0 <= targets[anchor_i, 0, grid_y, grid_x]).all()
+                assert (targets[anchor_i, 1, grid_y, grid_x] <= 1).all()
+                assert (0 <= targets[anchor_i, 1, grid_y, grid_x]).all()
+                assert 0 <= bw <= 1  # fails with bad anchor
+                assert 0 <= bh <= 1  # fails with bad anchor
 
-            targets[potential_anchor, 2, grid_y, grid_x] = t_w
-            targets[potential_anchor, 3, grid_y, grid_x] = t_h
-            targets[potential_anchor, 4, grid_y, grid_x] = (
-                objectness_score  # objectness
-            )
-            targets[potential_anchor, 5 + class_id, grid_y, grid_x] = 1.0  # class score
+            # objectness
+            targets[anchor_i, 4, grid_y, grid_x] = objectness_score
+            # _bump_objectness(
+            #     targets, anchor_i, grid_y, grid_x, max_value=objectness_score
+            # )
 
-            targets_mask[potential_anchor, grid_y, grid_x] = True
+            # class
+            targets[anchor_i, 5 + int(class_id), grid_y, grid_x] = 1.0  # class score
+
+            targets_mask[anchor_i, grid_y, grid_x] = True
     return targets, targets_mask
+
+
+def _bump_objectness(
+    targets: torch.Tensor,
+    potential_anchor: int,
+    grid_y: int,
+    grid_x: int,
+    max_value: float = 1.0,
+) -> None:
+    """
+    In-place: raises objectness scores around (grid_y, grid_x)
+    for the given anchor in `targets`.
+    """
+    device = targets.device
+    _, _, H, W = targets.shape
+
+    # 8×2 tensors of offsets for 1-pixel and 2-pixel neighbors
+    offsets1 = torch.tensor(
+        [[-1, -1], [-1, 0], [-1, 1], [0, -1], [0, 1], [1, -1], [1, 0], [1, 1]],
+        device=device,
+    )
+    offsets2 = torch.tensor(
+        [
+            [-2, -2],
+            [-2, -1],
+            [-2, 0],
+            [-2, 1],
+            [-2, 2],
+            [-1, -2],
+            [-1, 2],
+            [0, -2],
+            [0, 2],
+            [1, -2],
+            [1, 2],
+            [2, -2],
+            [2, -1],
+            [2, 0],
+            [2, 1],
+            [2, 2],
+        ],
+        device=device,
+    )
+
+    # helper to bump a whole neighborhood
+    def bump(offsets: torch.Tensor, thresh: float) -> None:
+        # compute absolute neighbor coords: (8,2)
+        base = torch.tensor([grid_y, grid_x], device=device)
+        neigh = offsets + base  # shape (8,2)
+        ys, xs = neigh[:, 0], neigh[:, 1]
+
+        # mask in‐bounds
+        valid = (ys >= 0) & (ys < H) & (xs >= 0) & (xs < W)
+        if not valid.any():
+            return
+
+        ys, xs = ys[valid], xs[valid]
+        # gather current objectness scores
+        curr = targets[potential_anchor, 4, ys, xs]
+        # find which need raising
+        to_raise = curr < thresh
+        if to_raise.any():
+            targets[potential_anchor, 4, ys[to_raise], xs[to_raise]] = thresh
+
+    # apply to 1-pixel neighbors (→0.75 * max_value) and 2-pixel neighbors (→0.50 * max_value)
+    bump(offsets1, thresh=max_value * 0.75)
+    bump(offsets2, thresh=max_value * 0.50)

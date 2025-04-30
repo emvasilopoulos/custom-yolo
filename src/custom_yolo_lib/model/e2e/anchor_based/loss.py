@@ -1,9 +1,6 @@
 from typing import List, Tuple
 import torch
 
-from custom_yolo_lib.model.building_blocks.heads.detections_3_anchors import (
-    DetectionHeadOutput,
-)
 import custom_yolo_lib.model.e2e.anchor_based.training_utils
 import custom_yolo_lib.training.losses
 
@@ -57,14 +54,19 @@ class YOLOLossPerFeatureMapV2(torch.nn.Module):
             num_classes=self.num_classes,
         )
 
-        if targets_masks.sum() == 0:
-            raise NotImplementedError("No targets in the batch. handle it somehow.")
-
         batch_obj_loss = self.objectness_loss(
             predictions[:, :, 4], targets_in_grid[:, :, 4]
         ).view(
             batch_size, num_anchors, -1
         )  # batch_size, num_anchors, grid_h * grid_w
+
+        if targets_masks.sum() == 0:
+            loss = batch_obj_loss.mean(dim=1).sum(1).mean().mul(0.75)
+            return loss, (
+                torch.tensor(0.0, device=predictions.device),
+                loss,
+                torch.tensor(0.0, device=predictions.device),
+            )
 
         batch_bbox_loss = []
         batch_cls_loss = []
@@ -76,28 +78,29 @@ class YOLOLossPerFeatureMapV2(torch.nn.Module):
             anchor_targets = targets_in_grid[:, anchor_i].view(
                 batch_size, num_feats_per_anchor, -1
             )
-            anchor_targets_mask = targets_masks[:, anchor_i].view(batch_size, -1)
+            # anchor_targets_mask = targets_masks[:, anchor_i].view(batch_size, -1)
 
-            # Objectness loss
-            # anchor_pred_objectnesses = anchor_predictions[:, 4, :]
             anchor_target_objectnesses = anchor_targets[:, 4, :]
-
-            anchor_num_objects = anchor_targets_mask.sum()  # batch
-            if anchor_num_objects == 0:
-                continue
-
-            batch_loss_weights = anchor_target_objectnesses
+            # grid_weights = torch.abs(anchor_target_objectnesses - anchor_predictions[:, 4].sigmoid())
+            grid_weights = anchor_target_objectnesses
 
             # BBox loss
             anchor_pred_bboxes = anchor_predictions[:, :4, :].permute(0, 2, 1).sigmoid()
+            anchor_pred_bboxes = anchor_pred_bboxes.mul(2.0)
+            anchor_pred_bboxes[:, :, :2] = anchor_pred_bboxes[:, :, :2].sub_(0.5)
+            anchor_pred_bboxes[:, :, 2:] = anchor_pred_bboxes[:, :, 2:].pow_(2)
+            anchor_pred_bboxes[:, :, 2] = anchor_pred_bboxes[:, :, 2].mul_(
+                self.feature_map_anchors.anchors[anchor_i, 2]
+            )
+            anchor_pred_bboxes[:, :, 3] = anchor_pred_bboxes[:, :, 3].mul_(
+                self.feature_map_anchors.anchors[anchor_i, 3]
+            )
             anchor_target_bboxes = anchor_targets[:, :4, :].permute(0, 2, 1)
             batch_bbox_loss.append(
                 _batch_bbox_loss(
                     self.box_loss,
                     anchor_pred_bboxes,
                     anchor_target_bboxes,
-                    anchor_targets_mask,
-                    batch_loss_weights,
                 )
             )
 
@@ -106,27 +109,27 @@ class YOLOLossPerFeatureMapV2(torch.nn.Module):
             anchor_target_class_scores = anchor_targets[:, 5:, :]
             batch_cls_loss.append(
                 self.class_loss(anchor_pred_class_scores, anchor_target_class_scores)
+                * grid_weights.unsqueeze(1)
             )
         # mean across anchors
-        batch_box_loss = torch.stack(batch_bbox_loss, dim=1).mean(
-            dim=1
-        )  # (batch_size, grid_h * grid_w)
-        batch_cls_loss = torch.stack(batch_cls_loss, dim=1).mean(
-            dim=1
-        )  # (batch_size, num_classes, grid_h * grid_w)
-        batch_objectness_loss = batch_obj_loss.mean(
-            dim=1
-        )  # (batch_size, grid_h * grid_w)
+        batch_box_loss = torch.stack(batch_bbox_loss, dim=1).mean(dim=1)
+        # produces a loss --> (batch_size, grid_h * grid_w)
+        batch_cls_loss = torch.stack(batch_cls_loss, dim=1).mean(dim=1)
+        # produces a loss --> (batch_size, num_classes, grid_h * grid_w)
+        batch_objectness_loss = batch_obj_loss.mean(dim=1)
+        # produces a loss --> (batch_size, grid_h * grid_w)
 
         # gain
-        batch_box_loss.mul_(5.0)
-        batch_objectness_loss.mul_(0.4)
-        batch_cls_loss.mul_(1.0)
+        # batch_box_loss.mul_(2.0)
+        # batch_objectness_loss.mul_(0.5)
+        # batch_cls_loss.mul_(1.0)
 
-        # reduce - mean across batch_size - sum across grid_h * grid_w & num_classes
-        final_bbox_loss = batch_box_loss.sum(1).mean()
-        final_objectness_loss = batch_objectness_loss.sum(1).mean()
-        final_class_loss = batch_cls_loss.sum(1).sum(1).mean()
+        # sum across grid_h * grid_w, mean across what's left, i.e. batch_size
+        final_bbox_loss = batch_box_loss.sum(1).mean().mul(1.0)
+        # sum across grid_h * grid_w, mean across what's left, i.e. batch_size
+        final_objectness_loss = batch_objectness_loss.sum(1).mean().mul(1.0)
+        # sum across grid_h * grid_w, sum across num_classes, mean across batch_size
+        final_class_loss = batch_cls_loss.sum(1).sum(1).mean().mul(1.0)
 
         total_loss = final_bbox_loss + final_objectness_loss + final_class_loss
         return total_loss, (final_bbox_loss, final_objectness_loss, final_class_loss)
@@ -134,11 +137,8 @@ class YOLOLossPerFeatureMapV2(torch.nn.Module):
 
 def _batch_bbox_loss(
     box_loss: torch.nn.Module,
-    predicted_bboxes_raw: torch.Tensor,
+    predicted_bboxes: torch.Tensor,
     target_bboxes_raw: torch.Tensor,
-    target_mask: torch.Tensor,
-    batch_loss_weights: torch.Tensor,
-    objectness_threshold: float = 0.5,
 ) -> torch.Tensor:
     """
     Args:
@@ -156,17 +156,8 @@ def _batch_bbox_loss(
     """
 
     batch_bbox_loss = []
-    for sample_i in range(predicted_bboxes_raw.shape[0]):
-        loss_weights = batch_loss_weights[sample_i]
-        sample_i_target_mask = target_mask[sample_i]
-
-        # Calculate bbox loss only where there are targets
-        if sample_i_target_mask.sum() == 0:
-            batch_bbox_loss.append(torch.zeros_like(loss_weights))
-            # batch_bbox_loss += loss_weights[loss_weights > objectness_threshold].sum()
-            continue
-
-        sample_i_predicted_bboxes = predicted_bboxes_raw[sample_i]
+    for sample_i in range(predicted_bboxes.shape[0]):
+        sample_i_predicted_bboxes = predicted_bboxes[sample_i]
         sample_i_target_bboxes = target_bboxes_raw[sample_i]
         """
         loss is provided with tensors:
@@ -177,7 +168,7 @@ def _batch_bbox_loss(
             sample_i_predicted_bboxes,
             sample_i_target_bboxes,
         )
-        batch_bbox_loss.append(sample_bbox_loss * loss_weights)
+        batch_bbox_loss.append(sample_bbox_loss)
     return torch.stack(batch_bbox_loss, dim=0)
 
 
