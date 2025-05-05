@@ -103,7 +103,10 @@ class MyLRScheduler(BaseLRScheduler):
             if line_angle > 0:
                 for i, param_group in enumerate(self.optimizer.param_groups):
                     temp = param_group["lr"]
+
+                    # NOTE: This here could be a big mistake. Maybe all LRs should be multiplied with the same value
                     perc = random.uniform(0.85, 0.95)
+
                     param_group["lr"] *= perc
                     if param_group["lr"] < 0.000001:
                         param_group["lr"] = self.param_groups_initial_lrs[i] / 10
@@ -111,3 +114,43 @@ class MyLRScheduler(BaseLRScheduler):
                         f"Updating 'lr' for param_group-{i} from '{temp:.7f}' to {param_group['lr']:.7f} "
                     )
             self._reset_moving_average()
+
+
+class WarmupLRScheduler(BaseLRScheduler):
+    """
+    Warmup learning rate scheduler.
+    """
+
+    def __init__(
+        self,
+        optimizer: torch.optim.Optimizer,
+        update_step_size: int,
+        warmup_steps: int,
+        logging_level: int = logging.WARNING,
+    ):
+        super().__init__(optimizer, logging_level)
+        self.warmup_steps = warmup_steps
+        self.current_step = 0
+        self.initial_lrs = [
+            param_group["lr"] for param_group in self.optimizer.param_groups
+        ]
+        self.upate_step_size = update_step_size
+
+    def update_loss(self, loss: torch.nn.Module):
+        self.current_step += 1
+        if self.current_step <= self.warmup_steps:
+            for i, param_group in enumerate(self.optimizer.param_groups):
+                warmup_lr = self.initial_lrs[i] * (
+                    self.current_step / self.warmup_steps
+                )
+                param_group["lr"] = warmup_lr
+        else:
+            if self.current_step % self.upate_step_size == 0:
+                perc = random.uniform(0.90, 0.95)
+                for i, param_group in enumerate(self.optimizer.param_groups):
+                    param_group["lr"] *= perc
+                    if param_group["lr"] < 0.000001:
+                        param_group["lr"] = self.initial_lrs[i] / 10
+
+    def get_lr(self):
+        return [param_group["lr"] for param_group in self.optimizer.param_groups]
