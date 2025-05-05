@@ -84,17 +84,4 @@ class BoxLoss(torch.nn.Module):
             torch.Tensor: Loss value.
         """
 
-        # Calculate IoU scores in vectorized form
-        # Handle zero-sized boxes by creating a mask
-        valid_boxes = (targets[:, 2] > 0) & (targets[:, 3] > 0)
-
-        # Initialize tensor with ones (for invalid boxes) so that the loss is 0 for them
-        iou_scores = torch.ones(predictions.shape[0], device=predictions.device)
-
-        # Calculate IoU only for valid boxes
-        if valid_boxes.any():
-            iou_scores[valid_boxes] = self.iou_fn(
-                predictions[valid_boxes], targets[valid_boxes]
-            ).squeeze()
-
-        return 1.0 - iou_scores
+        return 1.0 - self.iou_fn(predictions, targets).squeeze(1)

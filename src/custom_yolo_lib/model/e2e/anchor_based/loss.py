@@ -1,8 +1,13 @@
 from typing import List, Tuple
 import torch
 
+from custom_yolo_lib.model.e2e.anchor_based.constants import ANCHOR_GAIN
 import custom_yolo_lib.model.e2e.anchor_based.training_utils
 import custom_yolo_lib.training.losses
+
+BOX_LOSS_GAIN = 1.0
+OBJECTNESS_LOSS_GAIN = 1.0
+CLASS_LOSS_GAIN = 1.0
 
 
 class YOLOLossPerFeatureMapV2(torch.nn.Module):
@@ -23,6 +28,138 @@ class YOLOLossPerFeatureMapV2(torch.nn.Module):
         self.feature_map_anchors = feature_map_anchors
         self.grid_size_h = grid_size_h
         self.grid_size_w = grid_size_w
+
+    def forward_backup(
+        self,
+        predictions: torch.Tensor,
+        targets_batch: List[torch.Tensor],
+    ) -> torch.Tensor:
+        """
+        Args:
+            predictions (torch.Tensor): The predictions from the model corresponding to the specified Feature Map. Shape (batch_size, num_anchors, feats_per_anchor, grid_size_h, grid_size_w).
+            targets_batch (List[torch.Tensor]): The targets for the batch. Each target is a tensor of shape (num_objects, 5).
+                The 5 values are (x, y, w, h, class_id).
+                x --> center x of the bbox in the image normalized
+                y --> center y of the bbox in the image normalized
+                w --> width of the bbox in the image normalized
+                h --> height of the bbox in the image normalized
+                class_id --> class id of the object (0-indexed)
+        Returns:
+            Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: The bbox loss, objectness loss, and class loss.
+        """
+        num_anchors = predictions.shape[1]
+        batch_size = predictions.shape[0]
+        num_feats_per_anchor = predictions.shape[2]
+
+        targets_in_grid, targets_masks = _get_targets_in_grid(
+            targets_batch,
+            grid_size_h=self.grid_size_h,
+            grid_size_w=self.grid_size_w,
+            feature_map_anchors=self.feature_map_anchors,
+            num_classes=self.num_classes,
+        )
+
+        batch_obj_loss = self.objectness_loss(
+            predictions[:, :, 4], targets_in_grid[:, :, 4]
+        ).view(
+            batch_size, num_anchors, -1
+        )  # batch_size, num_anchors, grid_h * grid_w
+
+        if targets_masks.sum() == 0:
+            loss = batch_obj_loss.mean().mul(OBJECTNESS_LOSS_GAIN)
+            return loss, (
+                torch.tensor(0.0, device=predictions.device),
+                loss,
+                torch.tensor(0.0, device=predictions.device),
+            )
+
+        batch_bbox_loss = []
+        batch_cls_loss = []
+        for anchor_i in range(num_anchors):
+            # Extract the predictions and targets for the current anchor
+            anchor_predictions = predictions[:, anchor_i].permute(
+                0, 2, 3, 1
+            )  # (batch_size, grid_h, grid_w, feats_per_anchor)
+            anchor_targets = targets_in_grid[:, anchor_i].permute(
+                0, 2, 3, 1
+            )  # (batch_size, grid_h, grid_w, feats_per_anchor)
+            anchor_targets_mask = targets_masks[
+                :, anchor_i
+            ]  # (batch_size ,grid_h ,grid_w)
+
+            if anchor_targets_mask.sum() == 0:
+                continue
+
+            # BBox loss - NOTE: not translating pred nor target bboxes to a grid cell because they already have the same origin
+            ## preds
+            anchor_pred_bboxes = anchor_predictions[:, :, :, :4][
+                anchor_targets_mask
+            ].sigmoid()
+            x = (anchor_pred_bboxes[:, 0] * ANCHOR_GAIN - 0.5) * self.grid_size_w
+            y = (anchor_pred_bboxes[:, 1] * ANCHOR_GAIN - 0.5) * self.grid_size_h
+            w = (
+                (anchor_pred_bboxes[:, 2] * ANCHOR_GAIN) ** 2
+                * self.feature_map_anchors.anchors[anchor_i, 2]
+                * self.grid_size_w
+            )
+            h = (
+                (anchor_pred_bboxes[:, 3] * ANCHOR_GAIN) ** 2
+                * self.feature_map_anchors.anchors[anchor_i, 3]
+                * self.grid_size_h
+            )
+            anchor_pred_bboxes_decoded = torch.cat(
+                [
+                    x.unsqueeze(1),
+                    y.unsqueeze(1),
+                    w.unsqueeze(1),
+                    h.unsqueeze(1),
+                ],
+                dim=1,
+            )
+
+            ## targets
+            anchor_target_bboxes = anchor_targets[:, :, :, :4][anchor_targets_mask]
+            x = anchor_target_bboxes[:, 0] * self.grid_size_w
+            y = anchor_target_bboxes[:, 1] * self.grid_size_h
+            w = anchor_target_bboxes[:, 2] * self.grid_size_w
+            h = anchor_target_bboxes[:, 3] * self.grid_size_h
+            anchor_target_bboxes_decoded = torch.cat(
+                [
+                    x.unsqueeze(1),
+                    y.unsqueeze(1),
+                    w.unsqueeze(1),
+                    h.unsqueeze(1),
+                ],
+                dim=1,
+            )
+            batch_bbox_loss.append(
+                self.box_loss(
+                    anchor_pred_bboxes_decoded, anchor_target_bboxes_decoded
+                ).mean()
+            )
+
+            # Class loss
+            anchor_pred_class_scores = anchor_predictions[:, :, :, 5:][
+                anchor_targets_mask
+            ]
+            anchor_target_class_scores = anchor_targets[:, :, :, 5:][
+                anchor_targets_mask
+            ]
+            batch_cls_loss.append(
+                self.class_loss(anchor_pred_class_scores, anchor_target_class_scores)
+                .sum(0)
+                .mean()
+            )
+        # mean across anchors
+        final_bbox_loss = torch.stack(batch_bbox_loss).mean()
+        # produces a loss --> (batch_size, grid_h * grid_w)
+        final_class_loss = torch.stack(batch_cls_loss).mean()
+        # produces a loss --> (batch_size, num_classes, grid_h * grid_w)
+        final_objectness_loss = batch_obj_loss.mean()
+        # produces a loss --> (batch_size, grid_h * grid_w)
+
+        total_loss = final_bbox_loss + final_objectness_loss + final_class_loss
+        return total_loss, (final_bbox_loss, final_objectness_loss, final_class_loss)
 
     def forward(
         self,
@@ -61,146 +198,100 @@ class YOLOLossPerFeatureMapV2(torch.nn.Module):
         )  # batch_size, num_anchors, grid_h * grid_w
 
         if targets_masks.sum() == 0:
-            loss = batch_obj_loss.mean(dim=1).sum(1).mean().mul(0.75)
+            loss = batch_obj_loss.mean()
             return loss, (
                 torch.tensor(0.0, device=predictions.device),
                 loss,
                 torch.tensor(0.0, device=predictions.device),
             )
 
-        batch_bbox_loss = []
-        batch_cls_loss = []
+        batch_bbox_loss = 0
+        batch_cls_loss = 0
+
+        # to (batch_size, num_anchors, feats_per_anchor, grid_h, grid_w)
+        predictions = predictions.permute(0, 1, 3, 4, 2)
+        targets_in_grid = targets_in_grid.permute(0, 1, 3, 4, 2)
+        predicted_bboxes = predictions[:, :, :, :, :4].sigmoid()
         for anchor_i in range(num_anchors):
             # Extract the predictions and targets for the current anchor
-            anchor_predictions = predictions[:, anchor_i].view(
-                batch_size, num_feats_per_anchor, -1
-            )
-            anchor_targets = targets_in_grid[:, anchor_i].view(
-                batch_size, num_feats_per_anchor, -1
-            )
-            # anchor_targets_mask = targets_masks[:, anchor_i].view(batch_size, -1)
+            anchor_predictions = predictions[:, anchor_i]
+            anchor_targets = targets_in_grid[:, anchor_i]
+            anchor_targets_mask = targets_masks[
+                :, anchor_i
+            ]  # (batch_size ,grid_h ,grid_w)
 
-            anchor_target_objectnesses = anchor_targets[:, 4, :]
-            # grid_weights = torch.abs(anchor_target_objectnesses - anchor_predictions[:, 4].sigmoid())
-            grid_weights = anchor_target_objectnesses
+            if anchor_targets_mask.sum() == 0:
+                continue
 
-            # BBox loss
-            anchor_pred_bboxes = anchor_predictions[:, :4, :].permute(0, 2, 1).sigmoid()
-            anchor_pred_bboxes = anchor_pred_bboxes.mul(2.0)
-            anchor_pred_bboxes[:, :, :2] = anchor_pred_bboxes[:, :, :2].sub_(0.5)
-            anchor_pred_bboxes[:, :, 2:] = anchor_pred_bboxes[:, :, 2:].pow_(2)
-            anchor_pred_bboxes[:, :, 2] = anchor_pred_bboxes[:, :, 2].mul_(
-                self.feature_map_anchors.anchors[anchor_i, 2]
+            # BBox loss - NOTE: not translating pred nor target bboxes to a grid cell because they already have the same origin
+            ## preds
+            anchor_pred_bboxes = predicted_bboxes[:, anchor_i][anchor_targets_mask]
+            x = (anchor_pred_bboxes[:, 0] * ANCHOR_GAIN - 0.5) * self.grid_size_w
+            y = (anchor_pred_bboxes[:, 1] * ANCHOR_GAIN - 0.5) * self.grid_size_h
+            w = (
+                (anchor_pred_bboxes[:, 2] * ANCHOR_GAIN) ** 2
+                * self.feature_map_anchors.anchors[anchor_i, 2]
+                * self.grid_size_w
             )
-            anchor_pred_bboxes[:, :, 3] = anchor_pred_bboxes[:, :, 3].mul_(
-                self.feature_map_anchors.anchors[anchor_i, 3]
+            h = (
+                (anchor_pred_bboxes[:, 3] * ANCHOR_GAIN) ** 2
+                * self.feature_map_anchors.anchors[anchor_i, 3]
+                * self.grid_size_h
             )
-            anchor_target_bboxes = anchor_targets[:, :4, :].permute(0, 2, 1)
-            batch_bbox_loss.append(
-                _batch_bbox_loss(
-                    self.box_loss,
-                    anchor_pred_bboxes,
-                    anchor_target_bboxes,
-                )
+            anchor_pred_bboxes_decoded = torch.cat(
+                [
+                    x.unsqueeze(1),
+                    y.unsqueeze(1),
+                    w.unsqueeze(1),
+                    h.unsqueeze(1),
+                ],
+                dim=1,
             )
+
+            ## targets
+            anchor_target_bboxes = anchor_targets[:, :, :, :4][anchor_targets_mask]
+            x = anchor_target_bboxes[:, 0] * self.grid_size_w
+            y = anchor_target_bboxes[:, 1] * self.grid_size_h
+            w = anchor_target_bboxes[:, 2] * self.grid_size_w
+            h = anchor_target_bboxes[:, 3] * self.grid_size_h
+            anchor_target_bboxes_decoded = torch.cat(
+                [
+                    x.unsqueeze(1),
+                    y.unsqueeze(1),
+                    w.unsqueeze(1),
+                    h.unsqueeze(1),
+                ],
+                dim=1,
+            )
+            batch_bbox_loss += self.box_loss(
+                anchor_pred_bboxes_decoded, anchor_target_bboxes_decoded
+            ).mean()
 
             # Class loss
-            anchor_pred_class_scores = anchor_predictions[:, 5:, :]
-            anchor_target_class_scores = anchor_targets[:, 5:, :]
-            batch_cls_loss.append(
+            anchor_pred_class_scores = anchor_predictions[:, :, :, 5:][
+                anchor_targets_mask
+            ]
+            anchor_target_class_scores = anchor_targets[:, :, :, 5:][
+                anchor_targets_mask
+            ]
+            batch_cls_loss += (
                 self.class_loss(anchor_pred_class_scores, anchor_target_class_scores)
-                * grid_weights.unsqueeze(1)
+                .sum(0)
+                .mean()
             )
         # mean across anchors
-        batch_box_loss = torch.stack(batch_bbox_loss, dim=1).mean(dim=1)
-        # produces a loss --> (batch_size, grid_h * grid_w)
-        batch_cls_loss = torch.stack(batch_cls_loss, dim=1).mean(dim=1)
-        # produces a loss --> (batch_size, num_classes, grid_h * grid_w)
-        batch_objectness_loss = batch_obj_loss.mean(dim=1)
-        # produces a loss --> (batch_size, grid_h * grid_w)
-
-        # gain
-        # batch_box_loss.mul_(2.0)
-        # batch_objectness_loss.mul_(0.5)
-        # batch_cls_loss.mul_(1.0)
-
-        # sum across grid_h * grid_w, mean across what's left, i.e. batch_size
-        final_bbox_loss = batch_box_loss.sum(1).mean().mul(1.0)
-        # sum across grid_h * grid_w, mean across what's left, i.e. batch_size
-        final_objectness_loss = batch_objectness_loss.sum(1).mean().mul(1.0)
-        # sum across grid_h * grid_w, sum across num_classes, mean across batch_size
-        final_class_loss = batch_cls_loss.sum(1).sum(1).mean().mul(1.0)
+        final_bbox_loss = batch_bbox_loss / num_anchors
+        final_class_loss = batch_cls_loss / num_anchors
+        final_objectness_loss = (
+            batch_obj_loss.mean()
+            + self.objectness_loss(
+                predictions[:, :, :, :, 4][targets_masks],
+                targets_in_grid[:, :, :, :, 4][targets_masks],
+            ).mean()
+        )
 
         total_loss = final_bbox_loss + final_objectness_loss + final_class_loss
         return total_loss, (final_bbox_loss, final_objectness_loss, final_class_loss)
-
-
-def _batch_bbox_loss(
-    box_loss: torch.nn.Module,
-    predicted_bboxes: torch.Tensor,
-    target_bboxes_raw: torch.Tensor,
-) -> torch.Tensor:
-    """
-    Args:
-        predicted_bboxes_raw (torch.Tensor): A batch of bboxes with shape (batch_size, grid_h * grid_w, 4).
-        target_bboxes_raw (torch.Tensor): A batch of bboxes with shape (batch_size, grid_h * grid_w, 4).
-        predicted_bboxes_objectnesses (torch.Tensor): A batch of objectness scores with shape (batch_size, grid_h * grid_w).
-        target_mask (torch.Tensor): A batch of target masks with shape (batch_size, grid_h * grid_w).
-    """
-    # The predictions & targets are both in the form of:
-    """
-    x: [0, 1] in grid_x
-    y: [0, 1] in grid_y
-    w: log(bw / anchors[best_anchor, 2])
-    h: log(bh / anchors[best_anchor, 3])
-    """
-
-    batch_bbox_loss = []
-    for sample_i in range(predicted_bboxes.shape[0]):
-        sample_i_predicted_bboxes = predicted_bboxes[sample_i]
-        sample_i_target_bboxes = target_bboxes_raw[sample_i]
-        """
-        loss is provided with tensors:
-        predictions shape (num_objects, 4)
-        targets shape (num_objects, 4)
-        """
-        sample_bbox_loss = box_loss(
-            sample_i_predicted_bboxes,
-            sample_i_target_bboxes,
-        )
-        batch_bbox_loss.append(sample_bbox_loss)
-    return torch.stack(batch_bbox_loss, dim=0)
-
-
-def _batch_class_loss(
-    class_loss: torch.nn.Module,
-    predictions: torch.Tensor,
-    targets: torch.Tensor,
-    target_mask: torch.Tensor,
-    batch_loss_weights: torch.Tensor,
-) -> torch.Tensor:
-    batch_class_loss = []
-    for sample_i in range(predictions.shape[0]):
-        sample_i_target_mask = target_mask[sample_i]
-        total_target_objects = sample_i_target_mask.sum()
-        loss_weights = batch_loss_weights[sample_i]
-
-        sample_i_targets = targets[sample_i]
-        # Calculate class loss only where there are targets
-        if total_target_objects == 0:
-            batch_class_loss.append(torch.zeros_like(sample_i_targets))
-            # batch_class_loss += loss_weights[loss_weights > 0.5].mean()
-            continue
-
-        sample_i_predictions = predictions[
-            sample_i
-        ]  # shape (grid_h * grid_w, num_classes)
-        cls_loss = class_loss(
-            sample_i_predictions,
-            sample_i_targets,
-        )
-        batch_class_loss.append(cls_loss / total_target_objects)
-    return torch.stack(batch_class_loss, dim=0)
 
 
 def _get_targets_in_grid(

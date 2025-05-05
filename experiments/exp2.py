@@ -17,14 +17,21 @@ import custom_yolo_lib.training.lr_scheduler
 
 torch.manual_seed(42)
 
-EXPERIMENT_NAME = "exp1"
-EPOCHS = 300
+EXPERIMENT_NAME = "exp2"
+EPOCHS = 12
 NUM_CLASSES = 80
-LR = 0.001
-MOMENTUM = 0.937
+LR = 0.0001
+MOMENTUM = 0.9
 DECAY = 0.001
-BATCH_SIZE = 8
+BATCH_SIZE = 6
 IMAGE_SIZE = custom_yolo_lib.image_size.ImageSize(640, 640)
+CLASS_LOSS_GAIN = 1.0
+OBJECTNESS_LOSS_GAIN = 1.0
+BOX_LOSS_GAIN = 1.0
+OBJECTNESS_LOSS_SMALL_MAP_GAIN = 4.0  # bigger grid 80x80 results in smaller loss if BCE
+OBJECTNESS_LOSS_MEDIUM_MAP_GAIN = 1.0
+OBJECTNESS_LOSS_LARGE_MAP_GAIN = 0.4
+# torch.set_anomaly_enabled(True)
 
 
 def init_model(
@@ -96,12 +103,10 @@ def init_dataloaders(dataset_path: pathlib.Path):
         classes=classes,
         is_sama=True,
     )
-    training_loader = (
-        custom_yolo_lib.dataset.coco.tasks.loader.COCODataLoaderThreeFeatureMaps(
-            train_dataset,
-            batch_size=BATCH_SIZE,
-            shuffle=True,
-        )
+    training_loader = custom_yolo_lib.dataset.coco.tasks.loader.COCODataLoader(
+        train_dataset,
+        batch_size=BATCH_SIZE,
+        shuffle=True,
     )
     val_dataset = custom_yolo_lib.dataset.coco.tasks.instances.COCOInstances2017(
         dataset_path,
@@ -110,12 +115,10 @@ def init_dataloaders(dataset_path: pathlib.Path):
         classes=classes,
         is_sama=True,
     )
-    validation_loader = (
-        custom_yolo_lib.dataset.coco.tasks.loader.COCODataLoaderThreeFeatureMaps(
-            val_dataset,
-            batch_size=BATCH_SIZE,
-            shuffle=False,
-        )
+    validation_loader = custom_yolo_lib.dataset.coco.tasks.loader.COCODataLoader(
+        val_dataset,
+        batch_size=BATCH_SIZE,
+        shuffle=False,
     )
     return training_loader, validation_loader
 
@@ -148,44 +151,54 @@ def train_one_epoch(
     for i, coco_batch in enumerate(tqdm_obj):
 
         images = coco_batch.images_batch.to(device)
-        targets_s = [t.to(device) for t in coco_batch.small_objects_batch]
-        targets_m = [t.to(device) for t in coco_batch.medium_objects_batch]
-        targets_l = [t.to(device) for t in coco_batch.large_objects_batch]
+        targets = [t.to(device) for t in coco_batch.objects_batch]
 
         optimizer.zero_grad()
 
         predictions_s, predictions_m, predictions_l = model.train_forward2(images)
 
-        total_loss_s, losses_s = loss_s(predictions_s, targets_s)
-        total_loss_m, losses_m = loss_m(predictions_m, targets_m)
-        total_loss_l, losses_l = loss_l(predictions_l, targets_l)
-        loss = total_loss_s + total_loss_m + total_loss_l
+        _, losses_s = loss_s(predictions_s, targets)  #
+        _, losses_m = loss_m(predictions_m, targets)
+        _, losses_l = loss_l(predictions_l, targets)
+        loss = (losses_s[0] + losses_m[0] + losses_l[0]) * BOX_LOSS_GAIN
+        loss += (
+            losses_s[1] * OBJECTNESS_LOSS_SMALL_MAP_GAIN
+            + losses_m[1] * OBJECTNESS_LOSS_MEDIUM_MAP_GAIN
+            + losses_l[1] * OBJECTNESS_LOSS_LARGE_MAP_GAIN
+        ) * OBJECTNESS_LOSS_GAIN
+        loss += (losses_s[2] + losses_m[2] + losses_l[2]) * CLASS_LOSS_GAIN
+
         if loss == 0:
             print("Loss is zero, skipping step")
             continue
-        loss.backward()
+        if not torch.isnan(loss):
+            loss.backward()
 
-        scheduler.update_loss(loss)
-        optimizer.step()
+            scheduler.update_loss(loss)
+            optimizer.step()
 
-        avg_bbox_loss = losses_s[0] + losses_m[0] + losses_l[0]
-        avg_objectness_loss = losses_s[1] + losses_m[1] + losses_l[1]
-        avg_class_loss = losses_s[2] + losses_m[2] + losses_l[2]
-        tqdm_obj.set_description(
-            f"Total: {loss.item():.4f} | BBox: {avg_bbox_loss.item():.4f} | Obj: {avg_objectness_loss.item():.4f} | Class: {avg_class_loss.item():.4f}"
-        )
-        training_session_data["bbox_loss_avg_featmap"].append(avg_bbox_loss.item())
-        training_session_data["objectness_loss_avg_featmap"].append(
-            avg_objectness_loss.item()
-        )
-        training_session_data["class_loss_avg_featmap"].append(avg_class_loss.item())
-        training_session_data["total_loss_avg_featmap"].append(loss.item())
-        training_session_data["epoch"].append(epoch)
-        training_session_data["step"].append(training_step)
-        for i, LR in enumerate(scheduler.get_lr()):
-            if f"lr-{i}" not in training_session_data:
-                training_session_data[f"lr-{i}"] = []
-            training_session_data[f"lr-{i}"].append(LR)
+            avg_bbox_loss = losses_s[0] + losses_m[0] + losses_l[0]
+            avg_objectness_loss = losses_s[1] + losses_m[1] + losses_l[1]
+            avg_class_loss = losses_s[2] + losses_m[2] + losses_l[2]
+            tqdm_obj.set_description(
+                f"Total: {loss.item():.4f} | BBox: {avg_bbox_loss.item():.4f} | Obj: {avg_objectness_loss.item():.4f} | Class: {avg_class_loss.item():.4f}"
+            )
+            training_session_data["bbox_loss_avg_featmap"].append(avg_bbox_loss.item())
+            training_session_data["objectness_loss_avg_featmap"].append(
+                avg_objectness_loss.item()
+            )
+            training_session_data["class_loss_avg_featmap"].append(
+                avg_class_loss.item()
+            )
+            training_session_data["total_loss_avg_featmap"].append(loss.item())
+            training_session_data["epoch"].append(epoch)
+            training_session_data["step"].append(training_step)
+            for i, LR in enumerate(scheduler.get_lr()):
+                if f"lr-{i}" not in training_session_data:
+                    training_session_data[f"lr-{i}"] = []
+                training_session_data[f"lr-{i}"].append(LR)
+        else:
+            print("Loss is NaN, skipping step")
         training_step += 1
 
     train_data_path = experiment_path / f"training_session_data_epoch_{epoch}.csv"
@@ -224,15 +237,19 @@ def validate_one_epoch(
             """
 
             images = coco_batch.images_batch.to(device)
-            targets_s = [t.to(device) for t in coco_batch.small_objects_batch]
-            targets_m = [t.to(device) for t in coco_batch.medium_objects_batch]
-            targets_l = [t.to(device) for t in coco_batch.large_objects_batch]
+            targets = [t.to(device) for t in coco_batch.objects_batch]
             predictions_s, predictions_m, predictions_l = model.train_forward2(images)
 
-            total_loss_s, losses_s = loss_s(predictions_s, targets_s)
-            total_loss_m, losses_m = loss_m(predictions_m, targets_m)
-            total_loss_l, losses_l = loss_l(predictions_l, targets_l)
-            loss = total_loss_s + total_loss_m + total_loss_l
+            _, losses_s = loss_s(predictions_s, targets)
+            _, losses_m = loss_m(predictions_m, targets)
+            _, losses_l = loss_l(predictions_l, targets)
+            loss = (losses_s[0] + losses_m[0] + losses_l[0]) * BOX_LOSS_GAIN
+            loss += (
+                losses_s[1] * OBJECTNESS_LOSS_SMALL_MAP_GAIN
+                + losses_m[1] * OBJECTNESS_LOSS_MEDIUM_MAP_GAIN
+                + losses_l[1] * OBJECTNESS_LOSS_LARGE_MAP_GAIN
+            ) * OBJECTNESS_LOSS_GAIN
+            loss += (losses_s[2] + losses_m[2] + losses_l[2]) * CLASS_LOSS_GAIN
 
             avg_bbox_loss = losses_s[0] + losses_m[0] + losses_l[0]
             avg_objectness_loss = losses_s[1] + losses_m[1] + losses_l[1]
@@ -319,7 +336,7 @@ def session_loop(
 
 def main(dataset_path: pathlib.Path, experiment_path: pathlib.Path):
     experiment_path = custom_yolo_lib.experiments_utils.make_experiment_dir(
-        "exp1", experiment_path
+        EXPERIMENT_NAME, experiment_path
     )
 
     if not torch.cuda.is_available():

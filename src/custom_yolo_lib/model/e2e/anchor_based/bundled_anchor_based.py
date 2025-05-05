@@ -10,6 +10,7 @@ from custom_yolo_lib.model.building_blocks.heads.detections_3_anchors import (
     FeatureMapType,
 )
 from custom_yolo_lib.model.building_blocks.necks.additive import AdditiveNeck
+from custom_yolo_lib.model.building_blocks.necks.concat import NeckConcat
 
 
 class YOLOModel(torch.nn.Module):
@@ -18,15 +19,15 @@ class YOLOModel(torch.nn.Module):
         super(YOLOModel, self).__init__()
         self.__training = training
         self.backbone = ThreeScalesFeatures()
-        self.neck = AdditiveNeck()
+        self.neck = NeckConcat()
         self.detect_small = DetectionHead(
-            256, num_classes, feature_map_type=FeatureMapType.SMALL
+            128, num_classes, feature_map_type=FeatureMapType.SMALL
         )
         self.detect_medium = DetectionHead(
-            512, num_classes, feature_map_type=FeatureMapType.MEDIUM
+            256, num_classes, feature_map_type=FeatureMapType.MEDIUM
         )
         self.detect_large = DetectionHead(
-            1024, num_classes, feature_map_type=FeatureMapType.LARGE
+            512, num_classes, feature_map_type=FeatureMapType.LARGE
         )
 
         self.anchors_per_head = self.detect_small.num_anchors
