@@ -12,6 +12,7 @@ import custom_yolo_lib.image_size
 import custom_yolo_lib.model.e2e.anchor_based.bundled_anchor_based
 import custom_yolo_lib.model.e2e.anchor_based.loss
 import custom_yolo_lib.model.e2e.anchor_based.training_utils
+import custom_yolo_lib.training.losses
 import custom_yolo_lib.training.utils
 import custom_yolo_lib.training.lr_scheduler
 
@@ -338,6 +339,22 @@ def session_loop(
         model_path = experiment_path / f"model_last.pth"
         torch.save(model_state, model_path.as_posix())
 
+        if epoch < 3:
+            loss_s.set_box_loss(custom_yolo_lib.training.losses.BoxLoss.IoUType.IoU)
+            loss_m.set_box_loss(custom_yolo_lib.training.losses.BoxLoss.IoUType.IoU)
+            loss_l.set_box_loss(custom_yolo_lib.training.losses.BoxLoss.IoUType.IoU)
+        elif epoch < 6:
+            loss_s.set_box_loss(custom_yolo_lib.training.losses.BoxLoss.IoUType.GIoU)
+            loss_m.set_box_loss(custom_yolo_lib.training.losses.BoxLoss.IoUType.GIoU)
+            loss_l.set_box_loss(custom_yolo_lib.training.losses.BoxLoss.IoUType.GIoU)
+        elif epoch < 9:
+            loss_s.set_box_loss(custom_yolo_lib.training.losses.BoxLoss.IoUType.DIoU)
+            loss_m.set_box_loss(custom_yolo_lib.training.losses.BoxLoss.IoUType.DIoU)
+            loss_l.set_box_loss(custom_yolo_lib.training.losses.BoxLoss.IoUType.DIoU)
+        else:
+            loss_s.set_box_loss(custom_yolo_lib.training.losses.BoxLoss.IoUType.CIoU)
+            loss_m.set_box_loss(custom_yolo_lib.training.losses.BoxLoss.IoUType.CIoU)
+            loss_l.set_box_loss(custom_yolo_lib.training.losses.BoxLoss.IoUType.CIoU)
 
 def main(dataset_path: pathlib.Path, experiment_path: pathlib.Path):
     experiment_path = custom_yolo_lib.experiments_utils.make_experiment_dir(
