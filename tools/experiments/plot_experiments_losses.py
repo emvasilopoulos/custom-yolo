@@ -55,6 +55,7 @@ def concatenate_csv(
             break
         input_files.append(csv_path)
         epoch += 1
+    epoch -= 1
 
     # Read and concatenate the CSV files
     dataframes = [pd.read_csv(file.as_posix()) for file in input_files]
