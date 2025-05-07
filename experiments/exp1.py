@@ -45,7 +45,7 @@ def init_optimizer(
         parameters_grouped.bias, lr=LR, betas=(MOMENTUM, 0.999), weight_decay=0.0
     )
     optimizer.add_param_group(
-        {"params": parameters_grouped.weight_decay, "weight_decay": DECAY}
+        {"params": parameters_grouped.with_weight_decay, "weight_decay": DECAY}
     )
     optimizer.add_param_group(
         {"params": parameters_grouped.no_weight_decay, "weight_decay": 0.0}
