@@ -11,10 +11,10 @@ class ThreeScalesFeatures(torch.nn.Module):
         )
 
         self.layer1 = self._make_layer(32, 64, 1)
-        self.layer2 = self._make_layer(64, 128, 2)
-        self.layer3 = self._make_layer(128, 256, 8)
-        self.layer4 = self._make_layer(256, 512, 8)
-        self.layer5 = self._make_layer(512, 1024, 4)
+        self.layer2 = self._make_layer(64, 128, 1)
+        self.layer3 = self._make_layer(128, 256, 1)
+        self.layer4 = self._make_layer(256, 512, 1)
+        self.layer5 = self._make_layer(512, 1024, 1)
 
     def _make_layer(
         self, in_channels: int, out_channels: int, num_blocks: int
