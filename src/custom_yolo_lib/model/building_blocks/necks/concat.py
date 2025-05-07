@@ -8,6 +8,10 @@ class NeckConcat(torch.nn.Module):
 
     def __init__(self) -> None:
         super(NeckConcat, self).__init__()
+        self.small_output_channels = 128
+        self.medium_output_channels = 256
+        self.large_output_channels = 512
+        
         self.conv_large = ConvBlock(1024, 512, 1, 1, 0)
         self.upsample1 = torch.nn.Upsample(scale_factor=2, mode="nearest")
 
@@ -16,8 +20,8 @@ class NeckConcat(torch.nn.Module):
 
         self.conv_small = ConvBlock(256, 128, 1, 1, 0)
 
-        self.fusion_medium = ConvBlock(768, 256, 1, 1, 0)
-        self.fusion_small = ConvBlock(384, 128, 1, 1, 0)
+        self.fusion_medium = ConvBlock(768, self.medium_output_channels, 1, 1, 0)
+        self.fusion_small = ConvBlock(384, self.small_output_channels, 1, 1, 0)
 
     def forward(
         self, small: torch.Tensor, medium: torch.Tensor, large: torch.Tensor
