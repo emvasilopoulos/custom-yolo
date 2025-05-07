@@ -87,10 +87,11 @@ def build_feature_map_targets(
     bw_expanded = bw.unsqueeze(1)  # [N, 1]
     bh_expanded = bh.unsqueeze(1)  # [N, 1]
     anchor_w = anchors[:, 2].unsqueeze(0)  # [1, num_anchors]
+    anchor_h = anchors[:, 3].unsqueeze(0)  # [1, num_anchors]
 
     # Check which anchors are valid for each annotation
-    valid_mask = (anchor_w * (ANCHOR_GAIN**2 - epsilon) >= bw_expanded) & (
-        anchor_w * (ANCHOR_GAIN**2 - epsilon) >= bh_expanded
+    valid_mask = (anchor_w * (ANCHOR_GAIN**2) - epsilon >= bw_expanded) & (
+        anchor_h * (ANCHOR_GAIN**2) - epsilon >= bh_expanded
     )  # sigmoid never reaches 0 or 1 and we don't want too large values for its input
 
     # Get indices of valid pairs
@@ -134,10 +135,23 @@ def build_feature_map_targets(
 
             # Update objectness
             targets[a_idx, 4, g_y, g_x] = objectness_score
-            _bump_objectness(targets, a_idx, g_y, g_x, max_value=objectness_score)
+            # _bump_objectness(targets, a_idx, g_y, g_x, max_value=objectness_score)
 
             # Update class
+            # if 5 + sel_class_ids[i]-3 >= 0:
+            #     targets[a_idx, 5 + sel_class_ids[i]-3, g_y, g_x] = 0.25
+            # if 5 + sel_class_ids[i]-2 >= 0:
+            #     targets[a_idx, 5 + sel_class_ids[i]-2, g_y, g_x] = 0.5
+            # if 5 + sel_class_ids[i]-1 >= 0:
+            #     targets[a_idx, 5 + sel_class_ids[i]-1, g_y, g_x] = 0.75
             targets[a_idx, 5 + sel_class_ids[i], g_y, g_x] = 1.0
+            # if sel_class_ids[i]+1 < num_classes:
+            #     targets[a_idx, 5 + sel_class_ids[i]+1, g_y, g_x] = 0.75
+            # if sel_class_ids[i]+2 < num_classes:
+            #     targets[a_idx, 5 + sel_class_ids[i]+2, g_y, g_x] = 0.5
+            # if sel_class_ids[i]+3 < num_classes:
+            #     targets[a_idx, 5 + sel_class_ids[i]+3, g_y, g_x] = 0.25
+
             targets_mask[a_idx, g_y, g_x] = True
 
     return targets, targets_mask
