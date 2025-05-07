@@ -4,6 +4,7 @@ instances*.csv
 coco_data/
 .DS_Store
 experiments/exp*/
+experiments/debug/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
