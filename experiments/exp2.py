@@ -17,16 +17,18 @@ import custom_yolo_lib.training.lr_scheduler
 
 torch.manual_seed(42)
 
+BASE_LR = 0.01 / 64
 EXPERIMENT_NAME = "exp2"
+WARMUP_EPOCHS = 3
 EPOCHS = 12
 NUM_CLASSES = 80
-LR = 0.0001
+BATCH_SIZE = 16
+LR = BASE_LR * BATCH_SIZE
 MOMENTUM = 0.9
-DECAY = 0.001
-BATCH_SIZE = 6
+DECAY = 5e-4
 IMAGE_SIZE = custom_yolo_lib.image_size.ImageSize(640, 640)
-CLASS_LOSS_GAIN = 1.0
-OBJECTNESS_LOSS_GAIN = 1.0
+CLASS_LOSS_GAIN = 2.0
+OBJECTNESS_LOSS_GAIN = 0.65
 BOX_LOSS_GAIN = 1.0
 OBJECTNESS_LOSS_SMALL_MAP_GAIN = 4.0  # bigger grid 80x80 results in smaller loss if BCE
 OBJECTNESS_LOSS_MEDIUM_MAP_GAIN = 1.0
@@ -49,10 +51,10 @@ def init_optimizer(
 ) -> torch.optim.Optimizer:
     parameters_grouped = custom_yolo_lib.training.utils.get_params_grouped(model)
     optimizer = torch.optim.AdamW(
-        parameters_grouped.bias, lr=LR, betas=(MOMENTUM, 0.999), weight_decay=0.0
+        parameters_grouped.with_weight_decay, lr=LR, betas=(MOMENTUM, 0.999), weight_decay=DECAY
     )
     optimizer.add_param_group(
-        {"params": parameters_grouped.weight_decay, "weight_decay": DECAY}
+        {"params": parameters_grouped.bias, "weight_decay": DECAY}
     )
     optimizer.add_param_group(
         {"params": parameters_grouped.no_weight_decay, "weight_decay": 0.0}
@@ -122,12 +124,22 @@ def init_dataloaders(dataset_path: pathlib.Path):
     )
     return training_loader, validation_loader
 
+def calculate_loss(losses_s: torch.Tensor, losses_m: torch.Tensor, losses_l: torch.Tensor):
+    avg_bbox_loss = (losses_s[0] + losses_m[0] + losses_l[0]) * BOX_LOSS_GAIN
+    avg_objectness_loss = (
+        losses_s[1] * OBJECTNESS_LOSS_SMALL_MAP_GAIN
+        + losses_m[1] * OBJECTNESS_LOSS_MEDIUM_MAP_GAIN
+        + losses_l[1] * OBJECTNESS_LOSS_LARGE_MAP_GAIN
+    ) * OBJECTNESS_LOSS_GAIN
+    avg_class_loss = (losses_s[2] + losses_m[2] + losses_l[2])* CLASS_LOSS_GAIN
+    loss = avg_bbox_loss + avg_objectness_loss + avg_class_loss
+    return (avg_bbox_loss, avg_objectness_loss, avg_class_loss), loss
 
 def train_one_epoch(
     model: custom_yolo_lib.model.e2e.anchor_based.bundled_anchor_based.YOLOModel,
     training_loader: torch.utils.data.DataLoader,
     optimizer: torch.optim.Optimizer,
-    scheduler: custom_yolo_lib.training.lr_scheduler.StepLRScheduler,
+    scheduler: custom_yolo_lib.training.lr_scheduler.WarmupCosineScheduler,
     loss_s: custom_yolo_lib.model.e2e.anchor_based.loss.YOLOLossPerFeatureMapV2,
     loss_m: custom_yolo_lib.model.e2e.anchor_based.loss.YOLOLossPerFeatureMapV2,
     loss_l: custom_yolo_lib.model.e2e.anchor_based.loss.YOLOLossPerFeatureMapV2,
@@ -153,33 +165,33 @@ def train_one_epoch(
         images = coco_batch.images_batch.to(device)
         targets = [t.to(device) for t in coco_batch.objects_batch]
 
-        optimizer.zero_grad()
 
         predictions_s, predictions_m, predictions_l = model.train_forward2(images)
 
-        _, losses_s = loss_s(predictions_s, targets)  #
+        _, losses_s = loss_s(predictions_s, targets)  
         _, losses_m = loss_m(predictions_m, targets)
         _, losses_l = loss_l(predictions_l, targets)
-        loss = (losses_s[0] + losses_m[0] + losses_l[0]) * BOX_LOSS_GAIN
-        loss += (
-            losses_s[1] * OBJECTNESS_LOSS_SMALL_MAP_GAIN
-            + losses_m[1] * OBJECTNESS_LOSS_MEDIUM_MAP_GAIN
-            + losses_l[1] * OBJECTNESS_LOSS_LARGE_MAP_GAIN
-        ) * OBJECTNESS_LOSS_GAIN
-        loss += (losses_s[2] + losses_m[2] + losses_l[2]) * CLASS_LOSS_GAIN
-
+        (avg_bbox_loss, avg_objectness_loss, avg_class_loss), loss = calculate_loss(
+            losses_s, losses_m, losses_l
+        )
+        if torch.isnan(avg_bbox_loss):
+            print("avg_bbox_loss is NaN, skipping step")
+            continue
+        if torch.isnan(avg_objectness_loss):
+            print("avg_objectness_loss is NaN, skipping step")
+            continue
+        if torch.isnan(avg_class_loss):
+            print("avg_class_loss is NaN, skipping step")
+            continue
         if loss == 0:
             print("Loss is zero, skipping step")
             continue
         if not torch.isnan(loss):
             loss.backward()
-
-            scheduler.update_loss(loss)
             optimizer.step()
+            scheduler.step()
+            optimizer.zero_grad()
 
-            avg_bbox_loss = losses_s[0] + losses_m[0] + losses_l[0]
-            avg_objectness_loss = losses_s[1] + losses_m[1] + losses_l[1]
-            avg_class_loss = losses_s[2] + losses_m[2] + losses_l[2]
             tqdm_obj.set_description(
                 f"Total: {loss.item():.4f} | BBox: {avg_bbox_loss.item():.4f} | Obj: {avg_objectness_loss.item():.4f} | Class: {avg_class_loss.item():.4f}"
             )
@@ -243,17 +255,10 @@ def validate_one_epoch(
             _, losses_s = loss_s(predictions_s, targets)
             _, losses_m = loss_m(predictions_m, targets)
             _, losses_l = loss_l(predictions_l, targets)
-            loss = (losses_s[0] + losses_m[0] + losses_l[0]) * BOX_LOSS_GAIN
-            loss += (
-                losses_s[1] * OBJECTNESS_LOSS_SMALL_MAP_GAIN
-                + losses_m[1] * OBJECTNESS_LOSS_MEDIUM_MAP_GAIN
-                + losses_l[1] * OBJECTNESS_LOSS_LARGE_MAP_GAIN
-            ) * OBJECTNESS_LOSS_GAIN
-            loss += (losses_s[2] + losses_m[2] + losses_l[2]) * CLASS_LOSS_GAIN
-
-            avg_bbox_loss = losses_s[0] + losses_m[0] + losses_l[0]
-            avg_objectness_loss = losses_s[1] + losses_m[1] + losses_l[1]
-            avg_class_loss = losses_s[2] + losses_m[2] + losses_l[2]
+            (avg_bbox_loss, avg_objectness_loss, avg_class_loss), loss = calculate_loss(
+                losses_s, losses_m, losses_l
+            )
+            
             tqdm_obj.set_description(
                 f"Total: {loss.item():.4f} | BBox: {avg_bbox_loss.item():.4f} | Obj: {avg_objectness_loss.item():.4f} | Class: {avg_class_loss.item():.4f}"
             )
@@ -345,10 +350,14 @@ def main(dataset_path: pathlib.Path, experiment_path: pathlib.Path):
 
     model = init_model(device)
     optimizer = init_optimizer(model)
-    scheduler = custom_yolo_lib.training.lr_scheduler.StepLRScheduler(
-        optimizer, update_step_size=10000
-    )
     training_loader, validation_loader = init_dataloaders(dataset_path)
+    steps_per_epoch = len(training_loader)
+    scheduler = custom_yolo_lib.training.lr_scheduler.WarmupCosineScheduler(
+        optimizer,
+        warmup_steps=steps_per_epoch * WARMUP_EPOCHS,
+        max_steps=steps_per_epoch * EPOCHS,
+    )
+
     # loss_s, loss_m, loss_l = init_losses(device)
     loss_s, loss_m, loss_l = init_losses(model, device)
 
