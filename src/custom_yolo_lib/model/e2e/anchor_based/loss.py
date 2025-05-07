@@ -1,5 +1,6 @@
 from typing import List, Tuple
 import torch
+import torchvision
 
 from custom_yolo_lib.model.e2e.anchor_based.constants import ANCHOR_GAIN
 import custom_yolo_lib.model.e2e.anchor_based.training_utils
@@ -20,16 +21,22 @@ class YOLOLossPerFeatureMapV2(torch.nn.Module):
     ) -> None:
         super(YOLOLossPerFeatureMapV2, self).__init__()
         self.num_classes = num_classes
-        self.class_loss = custom_yolo_lib.training.losses.FocalLoss(reduction="none")
         self.box_loss = custom_yolo_lib.training.losses.BoxLoss(
-            iou_type=custom_yolo_lib.training.losses.BoxLoss.IoUType.CIoU
+            iou_type=custom_yolo_lib.training.losses.BoxLoss.IoUType.IoU
         )
         self.objectness_loss = torch.nn.BCEWithLogitsLoss(reduction="none")
+        # self.class_loss = torchvision.ops.sigmoid_focal_loss
+        self.class_loss = torch.nn.BCEWithLogitsLoss(reduction="none")
         self.feature_map_anchors = feature_map_anchors
         self.grid_size_h = grid_size_h
         self.grid_size_w = grid_size_w
 
-    def forward_backup(
+    def set_box_loss(self, box_loss: custom_yolo_lib.training.losses.BoxLoss.IoUType) -> None:
+        self.box_loss = custom_yolo_lib.training.losses.BoxLoss(
+            iou_type=box_loss
+        )
+        
+    def forward(
         self,
         predictions: torch.Tensor,
         targets_batch: List[torch.Tensor],
@@ -66,23 +73,24 @@ class YOLOLossPerFeatureMapV2(torch.nn.Module):
         )  # batch_size, num_anchors, grid_h * grid_w
 
         if targets_masks.sum() == 0:
-            loss = batch_obj_loss.mean().mul(OBJECTNESS_LOSS_GAIN)
+            loss = batch_obj_loss.mean()
             return loss, (
                 torch.tensor(0.0, device=predictions.device),
                 loss,
                 torch.tensor(0.0, device=predictions.device),
             )
 
-        batch_bbox_loss = []
-        batch_cls_loss = []
+        batch_bbox_loss = 0
+        batch_cls_loss = 0
+
+        # to (batch_size, num_anchors, grid_h, grid_w, feats_per_anchor)
+        predictions = predictions.permute(0, 1, 3, 4, 2)
+        targets_in_grid = targets_in_grid.permute(0, 1, 3, 4, 2)
+        predicted_bboxes = predictions[:, :, :, :, :4].sigmoid()
         for anchor_i in range(num_anchors):
             # Extract the predictions and targets for the current anchor
-            anchor_predictions = predictions[:, anchor_i].permute(
-                0, 2, 3, 1
-            )  # (batch_size, grid_h, grid_w, feats_per_anchor)
-            anchor_targets = targets_in_grid[:, anchor_i].permute(
-                0, 2, 3, 1
-            )  # (batch_size, grid_h, grid_w, feats_per_anchor)
+            anchor_predictions = predictions[:, anchor_i]
+            anchor_targets = targets_in_grid[:, anchor_i]
             anchor_targets_mask = targets_masks[
                 :, anchor_i
             ]  # (batch_size ,grid_h ,grid_w)
@@ -92,9 +100,7 @@ class YOLOLossPerFeatureMapV2(torch.nn.Module):
 
             # BBox loss - NOTE: not translating pred nor target bboxes to a grid cell because they already have the same origin
             ## preds
-            anchor_pred_bboxes = anchor_predictions[:, :, :, :4][
-                anchor_targets_mask
-            ].sigmoid()
+            anchor_pred_bboxes = predicted_bboxes[:, anchor_i][anchor_targets_mask]
             x = (anchor_pred_bboxes[:, 0] * ANCHOR_GAIN - 0.5) * self.grid_size_w
             y = (anchor_pred_bboxes[:, 1] * ANCHOR_GAIN - 0.5) * self.grid_size_h
             w = (
@@ -132,11 +138,9 @@ class YOLOLossPerFeatureMapV2(torch.nn.Module):
                 ],
                 dim=1,
             )
-            batch_bbox_loss.append(
-                self.box_loss(
-                    anchor_pred_bboxes_decoded, anchor_target_bboxes_decoded
-                ).mean()
-            )
+            batch_bbox_loss += self.box_loss(
+                anchor_pred_bboxes_decoded, anchor_target_bboxes_decoded
+            ).mean()
 
             # Class loss
             anchor_pred_class_scores = anchor_predictions[:, :, :, 5:][
@@ -145,23 +149,25 @@ class YOLOLossPerFeatureMapV2(torch.nn.Module):
             anchor_target_class_scores = anchor_targets[:, :, :, 5:][
                 anchor_targets_mask
             ]
-            batch_cls_loss.append(
+            batch_cls_loss += (
                 self.class_loss(anchor_pred_class_scores, anchor_target_class_scores)
-                .sum(0)
                 .mean()
             )
         # mean across anchors
-        final_bbox_loss = torch.stack(batch_bbox_loss).mean()
-        # produces a loss --> (batch_size, grid_h * grid_w)
-        final_class_loss = torch.stack(batch_cls_loss).mean()
-        # produces a loss --> (batch_size, num_classes, grid_h * grid_w)
-        final_objectness_loss = batch_obj_loss.mean()
-        # produces a loss --> (batch_size, grid_h * grid_w)
+        final_bbox_loss = batch_bbox_loss / num_anchors
+        final_class_loss = batch_cls_loss / num_anchors
+        final_objectness_loss = (
+            batch_obj_loss.mean()
+            + self.objectness_loss(
+                predictions[:, :, :, :, 4][targets_masks],
+                targets_in_grid[:, :, :, :, 4][targets_masks],
+            ).mean()
+        )
 
         total_loss = final_bbox_loss + final_objectness_loss + final_class_loss
         return total_loss, (final_bbox_loss, final_objectness_loss, final_class_loss)
 
-    def forward(
+    def debug_forward(
         self,
         predictions: torch.Tensor,
         targets_batch: List[torch.Tensor],
@@ -275,7 +281,7 @@ class YOLOLossPerFeatureMapV2(torch.nn.Module):
                 anchor_targets_mask
             ]
             batch_cls_loss += (
-                self.class_loss(anchor_pred_class_scores, anchor_target_class_scores)
+                self.class_loss(anchor_pred_class_scores, anchor_target_class_scores, reduction="none")
                 .sum(0)
                 .mean()
             )
@@ -291,7 +297,7 @@ class YOLOLossPerFeatureMapV2(torch.nn.Module):
         )
 
         total_loss = final_bbox_loss + final_objectness_loss + final_class_loss
-        return total_loss, (final_bbox_loss, final_objectness_loss, final_class_loss)
+        return total_loss, (final_bbox_loss, final_objectness_loss, final_class_loss), targets_in_grid
 
 
 def _get_targets_in_grid(
