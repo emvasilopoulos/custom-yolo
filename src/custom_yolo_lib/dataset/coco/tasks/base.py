@@ -118,7 +118,7 @@ class BaseCOCODatasetGrouped(torch.utils.data.Dataset):
         img_tensor = custom_yolo_lib.io.read.read_image_torchvision(image_path)
         if img_tensor.shape[0] == 1:
             img_tensor = img_tensor.repeat(3, 1, 1)
-        return self.input_pipeline(img_tensor)
+        return img_tensor
 
     def _image_file_name_from_id(self, image_id: int) -> str:
         return f"{image_id:012}.jpg"
