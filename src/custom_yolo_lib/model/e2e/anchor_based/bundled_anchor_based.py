@@ -9,7 +9,6 @@ from custom_yolo_lib.model.building_blocks.heads.detections_3_anchors import (
     DetectionHeadOutput,
     FeatureMapType,
 )
-from custom_yolo_lib.model.building_blocks.necks.additive import AdditiveNeck
 from custom_yolo_lib.model.building_blocks.necks.concat import NeckConcat
 
 
