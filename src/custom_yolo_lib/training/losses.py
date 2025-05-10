@@ -74,6 +74,16 @@ class BoxLoss(torch.nn.Module):
             raise ValueError(
                 f"Invalid IoU type: {iou_type}. Supported types: {list(self.IoUType)}"
             )
+        self.__iou = None
+
+    @property
+    def iou(self) -> torch.Tensor:
+        """
+        Returns the IoU value.
+        """
+        if self.__iou is None:
+            raise ValueError("IoU has not been computed yet.")
+        return self.__iou
 
     def forward(self, predictions: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
         """
@@ -83,5 +93,6 @@ class BoxLoss(torch.nn.Module):
         Returns:
             torch.Tensor: Loss value.
         """
+        self.__iou = self.iou_fn(predictions, targets).squeeze(1)
 
-        return 1.0 - self.iou_fn(predictions, targets).squeeze(1)
+        return 1.0 - self.__iou
