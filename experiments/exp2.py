@@ -1,3 +1,8 @@
+"""
+In the end the model failed because of a mistake in the loss function.
+Either way considering the experiment a failure.
+"""
+
 import pathlib
 import argparse
 
@@ -39,20 +44,26 @@ OBJECTNESS_LOSS_LARGE_MAP_GAIN = 0.4
 
 def init_model(
     device: torch.device,
-) -> custom_yolo_lib.model.e2e.anchor_based.bundled_anchor_based.YOLOModel:
-    model = custom_yolo_lib.model.e2e.anchor_based.bundled_anchor_based.YOLOModel(
-        num_classes=NUM_CLASSES, training=True
+) -> custom_yolo_lib.model.e2e.anchor_based.bundled_anchor_based.YOLOModel_FAILURE:
+    model = (
+        custom_yolo_lib.model.e2e.anchor_based.bundled_anchor_based.YOLOModel_FAILURE(
+            num_classes=NUM_CLASSES, training=True
+        )
     )
     model.to(device)
+    model.load_state_dict(torch.load("exp2/exp2_2/model_best.pth"))
     return model
 
 
 def init_optimizer(
-    model: custom_yolo_lib.model.e2e.anchor_based.bundled_anchor_based.YOLOModel,
+    model: custom_yolo_lib.model.e2e.anchor_based.bundled_anchor_based.YOLOModel_FAILURE,
 ) -> torch.optim.Optimizer:
     parameters_grouped = custom_yolo_lib.training.utils.get_params_grouped(model)
     optimizer = torch.optim.AdamW(
-        parameters_grouped.with_weight_decay, lr=LR, betas=(MOMENTUM, 0.999), weight_decay=DECAY
+        parameters_grouped.with_weight_decay,
+        lr=LR,
+        betas=(MOMENTUM, 0.999),
+        weight_decay=DECAY,
     )
     optimizer.add_param_group(
         {"params": parameters_grouped.bias, "weight_decay": DECAY}
@@ -64,7 +75,7 @@ def init_optimizer(
 
 
 def init_losses(
-    model: custom_yolo_lib.model.e2e.anchor_based.bundled_anchor_based.YOLOModel,
+    model: custom_yolo_lib.model.e2e.anchor_based.bundled_anchor_based.YOLOModel_FAILURE,
     device: torch.device,
 ):
     predictions_s, predictions_m, predictions_l = model.train_forward2(
@@ -125,19 +136,23 @@ def init_dataloaders(dataset_path: pathlib.Path):
     )
     return training_loader, validation_loader
 
-def calculate_loss(losses_s: torch.Tensor, losses_m: torch.Tensor, losses_l: torch.Tensor):
+
+def calculate_loss(
+    losses_s: torch.Tensor, losses_m: torch.Tensor, losses_l: torch.Tensor
+):
     avg_bbox_loss = (losses_s[0] + losses_m[0] + losses_l[0]) * BOX_LOSS_GAIN
     avg_objectness_loss = (
         losses_s[1] * OBJECTNESS_LOSS_SMALL_MAP_GAIN
         + losses_m[1] * OBJECTNESS_LOSS_MEDIUM_MAP_GAIN
         + losses_l[1] * OBJECTNESS_LOSS_LARGE_MAP_GAIN
     ) * OBJECTNESS_LOSS_GAIN
-    avg_class_loss = (losses_s[2] + losses_m[2] + losses_l[2])* CLASS_LOSS_GAIN
+    avg_class_loss = (losses_s[2] + losses_m[2] + losses_l[2]) * CLASS_LOSS_GAIN
     loss = avg_bbox_loss + avg_objectness_loss + avg_class_loss
     return (avg_bbox_loss, avg_objectness_loss, avg_class_loss), loss
 
+
 def train_one_epoch(
-    model: custom_yolo_lib.model.e2e.anchor_based.bundled_anchor_based.YOLOModel,
+    model: custom_yolo_lib.model.e2e.anchor_based.bundled_anchor_based.YOLOModel_FAILURE,
     training_loader: torch.utils.data.DataLoader,
     optimizer: torch.optim.Optimizer,
     scheduler: custom_yolo_lib.training.lr_scheduler.WarmupCosineScheduler,
@@ -166,10 +181,9 @@ def train_one_epoch(
         images = coco_batch.images_batch.to(device)
         targets = [t.to(device) for t in coco_batch.objects_batch]
 
-
         predictions_s, predictions_m, predictions_l = model.train_forward2(images)
 
-        _, losses_s = loss_s(predictions_s, targets)  
+        _, losses_s = loss_s(predictions_s, targets)
         _, losses_m = loss_m(predictions_m, targets)
         _, losses_l = loss_l(predictions_l, targets)
         (avg_bbox_loss, avg_objectness_loss, avg_class_loss), loss = calculate_loss(
@@ -220,7 +234,7 @@ def train_one_epoch(
 
 
 def validate_one_epoch(
-    model: custom_yolo_lib.model.e2e.anchor_based.bundled_anchor_based.YOLOModel,
+    model: custom_yolo_lib.model.e2e.anchor_based.bundled_anchor_based.YOLOModel_FAILURE,
     validation_loader: torch.utils.data.DataLoader,
     loss_s: custom_yolo_lib.model.e2e.anchor_based.loss.YOLOLossPerFeatureMapV2,
     loss_m: custom_yolo_lib.model.e2e.anchor_based.loss.YOLOLossPerFeatureMapV2,
@@ -259,7 +273,7 @@ def validate_one_epoch(
             (avg_bbox_loss, avg_objectness_loss, avg_class_loss), loss = calculate_loss(
                 losses_s, losses_m, losses_l
             )
-            
+
             tqdm_obj.set_description(
                 f"Total: {loss.item():.4f} | BBox: {avg_bbox_loss.item():.4f} | Obj: {avg_objectness_loss.item():.4f} | Class: {avg_class_loss.item():.4f}"
             )
@@ -286,7 +300,7 @@ def validate_one_epoch(
 
 
 def session_loop(
-    model: custom_yolo_lib.model.e2e.anchor_based.bundled_anchor_based.YOLOModel,
+    model: custom_yolo_lib.model.e2e.anchor_based.bundled_anchor_based.YOLOModel_FAILURE,
     training_loader: torch.utils.data.DataLoader,
     validation_loader: torch.utils.data.DataLoader,
     optimizer: torch.optim.Optimizer,
@@ -356,6 +370,7 @@ def session_loop(
             loss_m.set_box_loss(custom_yolo_lib.training.losses.BoxLoss.IoUType.CIoU)
             loss_l.set_box_loss(custom_yolo_lib.training.losses.BoxLoss.IoUType.CIoU)
 
+
 def main(dataset_path: pathlib.Path, experiment_path: pathlib.Path):
     experiment_path = custom_yolo_lib.experiments_utils.make_experiment_dir(
         EXPERIMENT_NAME, experiment_path
@@ -377,6 +392,9 @@ def main(dataset_path: pathlib.Path, experiment_path: pathlib.Path):
 
     # loss_s, loss_m, loss_l = init_losses(device)
     loss_s, loss_m, loss_l = init_losses(model, device)
+    loss_s.set_box_loss(custom_yolo_lib.training.losses.BoxLoss.IoUType.IoU)
+    loss_m.set_box_loss(custom_yolo_lib.training.losses.BoxLoss.IoUType.IoU)
+    loss_l.set_box_loss(custom_yolo_lib.training.losses.BoxLoss.IoUType.IoU)
 
     session_loop(
         model,
