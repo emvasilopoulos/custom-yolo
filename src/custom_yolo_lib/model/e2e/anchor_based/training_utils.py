@@ -90,9 +90,12 @@ def build_feature_map_targets(
     anchor_h = anchors[:, 3].unsqueeze(0)  # [1, num_anchors]
 
     # Check which anchors are valid for each annotation
-    valid_mask = (anchor_w * (ANCHOR_GAIN**2) - epsilon >= bw_expanded) & (
-        anchor_h * (ANCHOR_GAIN**2) - epsilon >= bh_expanded
-    )  # sigmoid never reaches 0 or 1 and we don't want too large values for its input
+    valid_mask = (
+        (anchor_w * (ANCHOR_GAIN**2) - epsilon >= bw_expanded)
+        & (anchor_w / (ANCHOR_GAIN**2) + epsilon <= bw_expanded)
+        & (anchor_h * (ANCHOR_GAIN**2) - epsilon >= bh_expanded)
+        & (anchor_h / (ANCHOR_GAIN**2) + epsilon <= bh_expanded)
+    )
 
     # Get indices of valid pairs
     ann_idx, anchor_idx = valid_mask.nonzero(as_tuple=True)
@@ -108,17 +111,19 @@ def build_feature_map_targets(
     sel_class_ids = class_ids[ann_idx]
 
     # Calculate grid positions and offsets
-    grid_x = (sel_bx * grid_size_w).long()
-    grid_y = (sel_by * grid_size_h).long()
-    x_offset = sel_bx * grid_size_w - grid_x.float()
-    y_offset = sel_by * grid_size_h - grid_y.float()
+    grid_x = sel_bx * grid_size_w
+    grid_x_int = grid_x.int()
+    x_offset = grid_x - grid_x_int
+    grid_y = sel_by * grid_size_h
+    grid_y_int = grid_y.int()
+    y_offset = grid_y - grid_y_int
 
     # Still need a loop for conditional update and _bump_objectness
     objectness_score = 1.0
     for i in range(len(ann_idx)):
         a_idx = anchor_idx[i]
-        g_y = grid_y[i]
-        g_x = grid_x[i]
+        g_y = grid_y_int[i]
+        g_x = grid_x_int[i]
 
         if targets[a_idx, 4, g_y, g_x] < objectness_score:
             # Update bbox
@@ -134,7 +139,7 @@ def build_feature_map_targets(
                 assert 0 <= sel_bh[i] <= 1
 
             # Update objectness
-            targets[a_idx, 4, g_y, g_x] = objectness_score
+            targets[a_idx, 4, g_y, g_x] = 1.0
             # _bump_objectness(targets, a_idx, g_y, g_x, max_value=objectness_score)
 
             # Update class
@@ -153,7 +158,6 @@ def build_feature_map_targets(
             #     targets[a_idx, 5 + sel_class_ids[i]+3, g_y, g_x] = 0.25
 
             targets_mask[a_idx, g_y, g_x] = True
-
     return targets, targets_mask
 
 
