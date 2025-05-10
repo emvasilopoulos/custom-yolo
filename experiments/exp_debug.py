@@ -3,8 +3,13 @@ import argparse
 
 import cv2
 import torch
-import tqdm
-import pandas as pd
+
+torch.manual_seed(42)
+
+import numpy as np
+
+np.printoptions(threshold=np.inf)
+
 
 import custom_yolo_lib.dataset.coco.tasks.instances
 import custom_yolo_lib.dataset.coco.tasks.loader
@@ -14,16 +19,14 @@ import custom_yolo_lib.model.e2e.anchor_based.bundled_anchor_based
 import custom_yolo_lib.model.e2e.anchor_based.loss
 import custom_yolo_lib.model.e2e.anchor_based.training_utils
 import custom_yolo_lib.training.utils
-import custom_yolo_lib.training.lr_scheduler
 
-torch.manual_seed(42)
 
 BASE_LR = 0.01 / 64
 EXPERIMENT_NAME = "debug"
 WARMUP_EPOCHS = 3
 EPOCHS = 12
 NUM_CLASSES = 80
-BATCH_SIZE = 12
+BATCH_SIZE = 4
 LR = BASE_LR * BATCH_SIZE
 MOMENTUM = 0.9
 DECAY = 0.001
@@ -52,7 +55,10 @@ def init_optimizer(
 ) -> torch.optim.Optimizer:
     parameters_grouped = custom_yolo_lib.training.utils.get_params_grouped(model)
     optimizer = torch.optim.AdamW(
-        parameters_grouped.with_weight_decay, lr=LR, betas=(MOMENTUM, 0.999), weight_decay=DECAY
+        parameters_grouped.with_weight_decay,
+        lr=LR,
+        betas=(MOMENTUM, 0.999),
+        weight_decay=DECAY,
     )
     optimizer.add_param_group(
         {"params": parameters_grouped.bias, "weight_decay": DECAY}
@@ -111,46 +117,140 @@ def init_dataloaders(dataset_path: pathlib.Path):
         batch_size=BATCH_SIZE,
         shuffle=True,
     )
-    val_dataset = custom_yolo_lib.dataset.coco.tasks.instances.COCOInstances2017(
-        dataset_path,
-        "val",
-        expected_image_size=IMAGE_SIZE,
-        classes=classes,
-        is_sama=True,
-    )
-    validation_loader = custom_yolo_lib.dataset.coco.tasks.loader.COCODataLoader(
-        val_dataset,
-        batch_size=BATCH_SIZE,
-        shuffle=False,
-    )
-    return training_loader, validation_loader
-import numpy as np
 
-np.printoptions(threshold=np.inf)
+    return training_loader
+
+
+def draw_targets_from_dataloader(
+    image: np.ndarray,
+    target: torch.Tensor,
+    sample_dir: pathlib.Path,
+    sample_in_batch: int,
+):
+    # draw targets on image
+    for obj in target:
+        xc, yc, w, h, class_id = obj
+        xc = int(xc.item() * IMAGE_SIZE.width)
+        yc = int(yc.item() * IMAGE_SIZE.height)
+        w = int(w.item() * IMAGE_SIZE.width)
+        h = int(h.item() * IMAGE_SIZE.height)
+        x1 = int((xc - w / 2))
+        y1 = int((yc - h / 2))
+        x2 = int((xc + w / 2))
+        y2 = int((yc + h / 2))
+        class_id = int(class_id.item())
+        cv2.rectangle(image, (x1, y1), (x2, y2), (0, 255, 0), 2)
+        cv2.putText(
+            image,
+            str(class_id),
+            (x1, y1 - 5),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.5,
+            (0, 255, 0),
+            2,
+        )
+    cv2.imwrite(str(sample_dir / f"sample_{sample_in_batch}_debug.jpg"), image)
+
+
+def _write_to_txt_targets_in_grid(
+    sample_dir: pathlib.Path, sample_in_batch: int, target_in_grid, feats_size: str
+):
+    anchors, feats, grid_h, grid_w = target_in_grid.shape
+    with open(
+        str(sample_dir / f"sample_{sample_in_batch}_in_grid_{feats_size}.txt"), "w"
+    ) as f:
+        f.write(f"target_in_grid_{feats_size} shape: {target_in_grid.shape}\n")
+        for anchor_i in range(anchors):
+            f.write(f"============== ANCHOR {anchor_i} ==============\n")
+            for y in range(grid_h):
+                for x in range(grid_w):
+                    f.write(f"grid_y: {y}, grid_x: {x}\n")
+                    f.write(f"{target_in_grid[anchor_i, :, y, x]}\n")
+                    f.write("--------------------------------------------\n")
+
+
+def write_to_txt_targets_in_grid(
+    sample_dir: pathlib.Path,
+    sample_in_batch: int,
+    target_in_grid_s,
+    target_in_grid_m,
+    target_in_grid_l,
+):
+    # write targets_in_grid_s to...
+    # target_in_grid_s is a tensor of shape (num_anchors, num_classes + 5, grid_h, grid_w)
+
+    _write_to_txt_targets_in_grid(sample_dir, sample_in_batch, target_in_grid_s, "s")
+    _write_to_txt_targets_in_grid(sample_dir, sample_in_batch, target_in_grid_m, "m")
+    _write_to_txt_targets_in_grid(sample_dir, sample_in_batch, target_in_grid_l, "l")
+
+
+def draw_targets_from_targets_in_grid(
+    image: np.ndarray,
+    target_in_grid,
+    target_mask,
+    sample_dir: pathlib.Path,
+    sample_in_batch: int,
+    feat_size: str,
+):
+    num_anchors = target_in_grid.shape[0]
+    anchor_colors = [(0, 200, 0), (200, 0, 0), (0, 0, 200)]
+    for anchor_i in range(num_anchors):
+        anchor_targets = target_in_grid[anchor_i]
+        anchor_targets_mask = target_mask[anchor_i]
+        grid_x = torch.arange(anchor_targets.shape[1], device=anchor_targets.device)
+        grid_y = torch.arange(anchor_targets.shape[0], device=anchor_targets.device)
+        for i in range(anchor_targets.shape[0]):
+            anchor_targets[i, :, 0].add_(grid_x)
+        for i in range(anchor_targets.shape[1]):
+            anchor_targets[:, i, 1].add_(grid_y)
+        anchor_targets[:, :, 0].div_(anchor_targets.shape[1])
+        anchor_targets[:, :, 1].div_(anchor_targets.shape[0])
+
+        anchor_target_bboxes = anchor_targets[:, :, :4][anchor_targets_mask]
+        x = anchor_target_bboxes[:, 0] * IMAGE_SIZE.width
+        y = anchor_target_bboxes[:, 1] * IMAGE_SIZE.height
+        w = anchor_target_bboxes[:, 2] * IMAGE_SIZE.width
+        h = anchor_target_bboxes[:, 3] * IMAGE_SIZE.height
+        x1s = x - w / 2
+        y1s = y - h / 2
+        x2s = x + w / 2
+        y2s = y + h / 2
+        class_ids = torch.argmax(anchor_targets[:, :, 5:], dim=2)[anchor_targets_mask]
+        for x1, y1, x2, y2, class_id in zip(x1s, y1s, x2s, y2s, class_ids):
+            x1 = int(x1.item())
+            y1 = int(y1.item())
+            x2 = int(x2.item())
+            y2 = int(y2.item())
+            cv2.rectangle(
+                image,
+                (x1 + 5 * anchor_i, y1),
+                (x2 + 5 * anchor_i, y2),
+                anchor_colors[anchor_i],
+                2,
+            )
+            cv2.putText(
+                image,
+                f"{class_id}-{anchor_i}",
+                (x1 + 5 * anchor_i, y1 - 5),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.5,
+                anchor_colors[anchor_i],
+                2,
+            )
+    cv2.imwrite(
+        str(sample_dir / f"sample_{sample_in_batch}_{feat_size}_debug.jpg"), image
+    )
+
 
 def infe_one_batch(
     model: custom_yolo_lib.model.e2e.anchor_based.bundled_anchor_based.YOLOModel,
     training_loader: torch.utils.data.DataLoader,
-    optimizer: torch.optim.Optimizer,
-    scheduler: custom_yolo_lib.training.lr_scheduler.WarmupCosineScheduler,
     loss_s: custom_yolo_lib.model.e2e.anchor_based.loss.YOLOLossPerFeatureMapV2,
     loss_m: custom_yolo_lib.model.e2e.anchor_based.loss.YOLOLossPerFeatureMapV2,
     loss_l: custom_yolo_lib.model.e2e.anchor_based.loss.YOLOLossPerFeatureMapV2,
-    epoch: int,
-    training_step: int,
     experiment_path: pathlib.Path,
     device: torch.device = torch.device("cuda:0"),
 ):
-    # TRAINING
-    training_session_data = {
-        "bbox_loss_avg_featmap": [],
-        "objectness_loss_avg_featmap": [],
-        "class_loss_avg_featmap": [],
-        "total_loss_avg_featmap": [],
-        "epoch": [],
-        "step": [],
-    }
-    tqdm_obj = tqdm.tqdm(training_loader)
     model.train()
     for i, coco_batch in enumerate(training_loader):
 
@@ -159,14 +259,38 @@ def infe_one_batch(
 
         predictions_s, predictions_m, predictions_l = model.train_forward2(images)
 
-        _, losses_s, targets_in_grid_s = loss_s.debug_forward(predictions_s, targets)  #
-        _, losses_m, targets_in_grid_m = loss_m.debug_forward(predictions_m, targets)
-        _, losses_l, targets_in_grid_l = loss_l.debug_forward(predictions_l, targets)
+        _, targets_in_grid_s, targets_mask_s = loss_s.debug_forward(
+            predictions_s, targets
+        )  #
+        _, targets_in_grid_m, targets_mask_m = loss_m.debug_forward(
+            predictions_m, targets
+        )
+        _, targets_in_grid_l, targets_mask_l = loss_l.debug_forward(
+            predictions_l, targets
+        )
         break
 
-    for i, (image, target, target_in_grid_s, target_in_grid_m, target_in_grid_l) in enumerate(zip(
-        images, targets, targets_in_grid_s, targets_in_grid_m, targets_in_grid_l
-    )):
+    for i, (
+        image,
+        target,
+        target_in_grid_s,
+        target_mask_s,
+        target_in_grid_m,
+        target_mask_m,
+        target_in_grid_l,
+        target_mask_l,
+    ) in enumerate(
+        zip(
+            images,
+            targets,
+            targets_in_grid_s,
+            targets_mask_s,
+            targets_in_grid_m,
+            targets_mask_m,
+            targets_in_grid_l,
+            targets_mask_l,
+        )
+    ):
         # create sample_i subdir
         sample_dir = experiment_path / f"sample_{i}"
         sample_dir.mkdir(parents=True, exist_ok=True)
@@ -175,9 +299,7 @@ def infe_one_batch(
         image = image.permute(1, 2, 0).cpu().numpy() * 255.0
         image = image.astype("uint8")
         image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
-        cv2.imwrite(
-            str(sample_dir / f"sample_{i}.jpg"), image
-        )
+        cv2.imwrite(str(sample_dir / f"sample_{i}.jpg"), image)
         # write targets to txt file
         with open(str(sample_dir / f"sample_{i}.txt"), "w") as f:
             for obj in target:
@@ -185,119 +307,84 @@ def infe_one_batch(
                     f.write(f"{item.item()}, ")
                 f.write("\n")
 
-        # draw targets on image
-        for obj in target:
-            xc, yc, w, h, class_id = obj
-            xc = int(xc.item()* IMAGE_SIZE.width)
-            yc = int(yc.item() * IMAGE_SIZE.height)
-            w = int(w.item()* IMAGE_SIZE.width)
-            h = int(h.item() * IMAGE_SIZE.height)
-            x1 = int((xc - w / 2) )
-            y1 = int((yc - h / 2))
-            x2 = int((xc + w / 2) )
-            y2 = int((yc + h / 2))
-            class_id = int(class_id.item())
-            cv2.rectangle(image, (x1, y1), (x2, y2), (0, 255, 0), 2)
-            cv2.putText(
-                image,
-                str(class_id),
-                (x1, y1 - 5),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.5,
-                (0, 255, 0),
-                2,
-                )
-        cv2.imwrite(
-            str(sample_dir / f"sample_{i}_debug.jpg"), image
+        img1 = image.copy()
+        draw_targets_from_dataloader(img1, target, sample_dir, i)
+        write_to_txt_targets_in_grid(
+            sample_dir,
+            i,
+            target_in_grid_s,
+            target_in_grid_m,
+            target_in_grid_l,
         )
-        
-        # write targets_in_grid_s to... 
-        # target_in_grid_s is a tensor of shape (num_anchors, num_classes + 5, grid_h, grid_w)
-        with open(str(sample_dir / f"sample_{i}_in_grid_s.txt"), "w") as f:
-            f.write(f"target_in_grid_s shape: {target_in_grid_s.shape}\n")
-            for i, anchor in enumerate(target_in_grid_s):
-                f.write(f"============== ANCHOR {i} ==============\n")
-                for grid_y in range(anchor.shape[0]):
-                    for grid_x in range(anchor.shape[1]):
-                        f.write(f"grid_y: {grid_y}, grid_x: {grid_x}\n")
-                        f.write(f"{anchor[grid_y, grid_x, :]}\n")
-                        f.write("--------------------------------------------\n")
-        # write targets_in_grid_m to...
-        with open(str(sample_dir / f"sample_{i}_in_grid_m.txt"), "w") as f:
-            f.write(f"target_in_grid_m shape: {target_in_grid_m.shape}\n")
-            for k, anchor in enumerate(target_in_grid_m):
-                f.write(f"============== ANCHOR {k} ==============\n")
-                for grid_y in range(anchor.shape[0]):
-                    for grid_x in range(anchor.shape[1]):
-                        f.write(f"grid_y: {grid_y}, grid_x: {grid_x}\n")
-                        f.write(f"{anchor[grid_y, grid_x, :]}\n")
-                        f.write("--------------------------------------------\n")
-        # write targets_in_grid_l to...
-        with open(str(sample_dir / f"sample_{i}_in_grid_l.txt"), "w") as f:
-            f.write(f"target_in_grid_l shape: {target_in_grid_l.shape}\n")
-            for k, anchor in enumerate(target_in_grid_l):
-                f.write(f"============== ANCHOR {k} ==============\n")
-                for grid_y in range(anchor.shape[0]):
-                    for grid_x in range(anchor.shape[1]):
-                        f.write(f"grid_y: {grid_y}, grid_x: {grid_x}\n")
-                        f.write(f"{anchor[grid_y, grid_x, :]}\n")
-                        f.write("--------------------------------------------\n")
-        pass
-    return training_step
+
+        target_in_grid_s = target_in_grid_s.permute(0, 2, 3, 1)
+        target_in_grid_m = target_in_grid_m.permute(0, 2, 3, 1)
+        target_in_grid_l = target_in_grid_l.permute(0, 2, 3, 1)
+
+        # draw targets_in_grid_s on image
+        img2 = image.copy()
+        draw_targets_from_targets_in_grid(
+            img2,
+            target_in_grid_s,
+            target_mask_s,
+            sample_dir,
+            i,
+            "small",
+        )
+        # draw targets_in_grid_m on image
+        img3 = image.copy()
+        draw_targets_from_targets_in_grid(
+            img3,
+            target_in_grid_m,
+            target_mask_m,
+            sample_dir,
+            i,
+            "medium",
+        )
+        # draw targets_in_grid_l on image
+        img4 = image.copy()
+        draw_targets_from_targets_in_grid(
+            img4,
+            target_in_grid_l,
+            target_mask_l,
+            sample_dir,
+            i,
+            "large",
+        )
+        break
+        print("- Done with sample", i)
 
 
 def session_loop(
     model: custom_yolo_lib.model.e2e.anchor_based.bundled_anchor_based.YOLOModel,
     training_loader: torch.utils.data.DataLoader,
-    validation_loader: torch.utils.data.DataLoader,
-    optimizer: torch.optim.Optimizer,
-    scheduler: custom_yolo_lib.training.lr_scheduler.StepLRScheduler,
     loss_s: custom_yolo_lib.model.e2e.anchor_based.loss.YOLOLossPerFeatureMapV2,
     loss_m: custom_yolo_lib.model.e2e.anchor_based.loss.YOLOLossPerFeatureMapV2,
     loss_l: custom_yolo_lib.model.e2e.anchor_based.loss.YOLOLossPerFeatureMapV2,
     experiment_path: pathlib.Path,
     device: torch.device = torch.device("cuda:0"),
 ):
-    # Training loop
-    training_step = 0
-    validation_step = 0
-    min_mean_val_loss = float("inf")
-
-    training_step = infe_one_batch(
+    infe_one_batch(
         model,
         training_loader,
-        optimizer,
-        scheduler,
         loss_s,
         loss_m,
         loss_l,
-        0,
-        training_step,
         experiment_path,
         device,
     )
 
 
-
 def main(dataset_path: pathlib.Path, experiment_path: pathlib.Path):
-    experiment_path = custom_yolo_lib.experiments_utils.make_experiment_dir(
-        EXPERIMENT_NAME, experiment_path
-    )
+    experiment_path /= EXPERIMENT_NAME
+    experiment_path.mkdir(parents=True, exist_ok=True)
 
     if not torch.cuda.is_available():
         raise RuntimeError("CUDA is not available. Why bother bro?.")
-    device = torch.device("cpu")
+    device = torch.device("cuda:0")
 
     model = init_model(device)
-    optimizer = init_optimizer(model)
-    training_loader, validation_loader = init_dataloaders(dataset_path)
-    steps_per_epoch = len(training_loader)
-
-    scheduler = custom_yolo_lib.training.lr_scheduler.WarmupCosineScheduler(
-        optimizer,
-        warmup_steps=steps_per_epoch * WARMUP_EPOCHS,
-        max_steps=steps_per_epoch * EPOCHS,
-    )
+    training_loader = init_dataloaders(dataset_path)
 
     # loss_s, loss_m, loss_l = init_losses(device)
     loss_s, loss_m, loss_l = init_losses(model, device)
@@ -305,9 +392,6 @@ def main(dataset_path: pathlib.Path, experiment_path: pathlib.Path):
     session_loop(
         model,
         training_loader,
-        validation_loader,
-        optimizer,
-        scheduler,
         loss_s,
         loss_m,
         loss_l,
