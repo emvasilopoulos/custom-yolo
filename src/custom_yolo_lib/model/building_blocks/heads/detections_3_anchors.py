@@ -4,6 +4,7 @@ from typing import Dict, List, Optional
 
 import torch
 
+from custom_yolo_lib.model.e2e.anchor_based.constants import ANCHOR_GAIN
 import custom_yolo_lib.process.bbox
 import custom_yolo_lib.process.bbox.utils
 import custom_yolo_lib.model.building_blocks.heads.anchors.anchors_3_coco
@@ -110,7 +111,7 @@ class DetectionHead(torch.nn.Module):
         eliminating the effect of grid on which the object is
         undetectable.."
         """
-        self._multiplier = 2.0
+        self._multiplier = ANCHOR_GAIN
 
         self.meshgrids: Dict[str, List[torch.Tensor]] = {}
 
