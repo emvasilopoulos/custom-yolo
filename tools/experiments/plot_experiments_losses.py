@@ -28,8 +28,8 @@ def parse_args():
     )
     parser.add_argument(
         "--y_upper_limit",
-        type=int,
-        default=20,
+        type=float,
+        default=20.0,
         help="Y axis upper limit.",
     )
     return parser.parse_args()
@@ -94,14 +94,14 @@ def plot_csv(
     # plot moving average
     for header in headers_to_plot:
         df[f"{header}_ma"] = df[header].rolling(window=ma_steps).mean()
-    
+
     # Create figure and axis
     fig, ax = plt.subplots(figsize=(25, 10))
-    
+
     # Plot each header's moving average
     for header in headers_to_plot:
         ax.plot(df[x_axis_name], df[f"{header}_ma"], label=header)
-    
+
     # Set plot properties
     ax.set_title("Losses")
     ax.set_xlabel(x_axis_name)
@@ -109,7 +109,7 @@ def plot_csv(
     ax.set_ylim(0, y_upper_limit)
     ax.grid(True)
     ax.legend(loc="upper right")
-    
+
     for epoch_group in df.groupby("epoch"):
         # vertical line
         # place labels in x axis
@@ -123,10 +123,11 @@ def plot_csv(
             y_upper_limit - (0.05 * y_upper_limit),
             f"Epoch {epoch_group[0]} start",
         )
-        
+
     # Save the figure
     plt.savefig(output_path.as_posix())
     plt.close(fig)
+
 
 if __name__ == "__main__":
     args = parse_args()
