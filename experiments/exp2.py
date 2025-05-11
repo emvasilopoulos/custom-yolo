@@ -72,12 +72,12 @@ def init_dataloaders(dataset_path: pathlib.Path):
         expected_image_size=IMAGE_SIZE,
         classes=classes,
         is_sama=True,
+        e2e_preprocessor=e2e_preprocessor,
     )
     validation_loader = custom_yolo_lib.dataset.coco.tasks.loader.COCODataLoader(
         val_dataset,
         batch_size=BATCH_SIZE,
         shuffle=False,
-        e2e_preprocessor=e2e_preprocessor,
     )
     return training_loader, validation_loader
 
