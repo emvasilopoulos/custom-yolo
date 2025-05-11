@@ -7,6 +7,7 @@ import pandas as pd
 
 import custom_yolo_lib.dataset.coco.tasks.instances
 import custom_yolo_lib.dataset.coco.tasks.loader
+import custom_yolo_lib.experiments.model_factory
 import custom_yolo_lib.experiments.utils
 import custom_yolo_lib.image_size
 import custom_yolo_lib.model.e2e.anchor_based.bundled_anchor_based
@@ -26,16 +27,6 @@ MOMENTUM = 0.937
 DECAY = 0.001
 BATCH_SIZE = 8
 IMAGE_SIZE = custom_yolo_lib.image_size.ImageSize(640, 640)
-
-
-def init_model(
-    device: torch.device,
-) -> custom_yolo_lib.model.e2e.anchor_based.bundled_anchor_based.YOLOModel:
-    model = custom_yolo_lib.model.e2e.anchor_based.bundled_anchor_based.YOLOModel(
-        num_classes=NUM_CLASSES, training=True
-    )
-    model.to(device)
-    return model
 
 
 def init_optimizer(
@@ -332,7 +323,10 @@ def main(dataset_path: pathlib.Path, experiment_path: pathlib.Path):
         raise RuntimeError("CUDA is not available. Why bother bro?.")
     device = torch.device("cuda:0")
 
-    model = init_model(device)
+    model_type = custom_yolo_lib.experiments.model_factory.ModelType.YOLO
+    model = custom_yolo_lib.experiments.model_factory.init_model(
+        model_type=model_type, device=device, num_classes=NUM_CLASSES
+    )
     optimizer = init_optimizer(model)
     scheduler = custom_yolo_lib.training.lr_scheduler.StepLRScheduler(
         optimizer, update_step_size=10000

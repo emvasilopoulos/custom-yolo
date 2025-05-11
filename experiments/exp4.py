@@ -14,6 +14,7 @@ import custom_yolo_lib.model.e2e.anchor_based.loss
 import custom_yolo_lib.model.e2e.anchor_based.training_utils
 import custom_yolo_lib.training.lr_scheduler
 import custom_yolo_lib.process.image.e2e
+import custom_yolo_lib.experiments.model_factory
 
 torch.manual_seed(42)
 
@@ -34,16 +35,6 @@ OBJECTNESS_LOSS_SMALL_MAP_GAIN = 4.0  # bigger grid 80x80 results in smaller los
 OBJECTNESS_LOSS_MEDIUM_MAP_GAIN = 1.0
 OBJECTNESS_LOSS_LARGE_MAP_GAIN = 0.4
 # torch.set_anomaly_enabled(True)
-
-
-def init_model(
-    device: torch.device,
-) -> custom_yolo_lib.model.e2e.anchor_based.bundled_anchor_based.YOLOModel:
-    model = custom_yolo_lib.model.e2e.anchor_based.bundled_anchor_based.YOLOModel(
-        num_classes=NUM_CLASSES, training=True
-    )
-    model.to(device)
-    return model
 
 
 def init_optimizer(
@@ -368,7 +359,10 @@ def main(dataset_path: pathlib.Path, experiment_path: pathlib.Path):
         raise RuntimeError("CUDA is not available. Why bother bro?.")
     device = torch.device("cuda:0")
 
-    model = init_model(device)
+    model_type = custom_yolo_lib.experiments.model_factory.ModelType.YOLOFPN
+    model = custom_yolo_lib.experiments.model_factory.init_model(
+        model_type=model_type, device=device, num_classes=NUM_CLASSES
+    )
     optimizer = init_optimizer(model)
     training_loader, validation_loader = init_dataloaders(dataset_path)
     steps_per_epoch = len(training_loader)
