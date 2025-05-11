@@ -11,11 +11,11 @@ import custom_yolo_lib.experiments.model_factory
 import custom_yolo_lib.experiments.utils
 import custom_yolo_lib.experiments.optimizer_factory
 import custom_yolo_lib.experiments.loss_factory
+import custom_yolo_lib.experiments.dataloaders_factory
 import custom_yolo_lib.image_size
 import custom_yolo_lib.model.e2e.anchor_based.bundled_anchor_based
 import custom_yolo_lib.model.e2e.anchor_based.loss
 import custom_yolo_lib.training.lr_scheduler
-import custom_yolo_lib.process.image.e2e
 
 torch.manual_seed(42)
 
@@ -24,6 +24,9 @@ OPTIMIZER_TYPE = (
     custom_yolo_lib.experiments.optimizer_factory.OptimizerType.SPLIT_GROUPS_ADAMW
 )
 LOSS_TYPE = custom_yolo_lib.experiments.loss_factory.LossType.THREESCALE_YOLO
+DATASET_TYPE = (
+    custom_yolo_lib.experiments.dataloaders_factory.DatasetType.COCO_ORIGINAL_THREE_FEATURE_MAPS
+)
 EXPERIMENT_NAME = "exp1"
 EPOCHS = 300
 NUM_CLASSES = 80
@@ -32,44 +35,6 @@ MOMENTUM = 0.937
 DECAY = 0.001
 BATCH_SIZE = 8
 IMAGE_SIZE = custom_yolo_lib.image_size.ImageSize(640, 640)
-
-
-def init_dataloaders(dataset_path: pathlib.Path):
-    classes = [i for i in range(NUM_CLASSES)]
-    e2e_preprocessor = custom_yolo_lib.process.image.e2e.E2EPreprocessor(
-        expected_image_size=IMAGE_SIZE,
-    )
-    train_dataset = custom_yolo_lib.dataset.coco.tasks.instances.COCOInstances2017(
-        dataset_path,
-        "train",
-        expected_image_size=IMAGE_SIZE,
-        classes=classes,
-        is_sama=True,
-        e2e_preprocessor=e2e_preprocessor,
-    )
-    training_loader = (
-        custom_yolo_lib.dataset.coco.tasks.loader.COCODataLoaderThreeFeatureMaps(
-            train_dataset,
-            batch_size=BATCH_SIZE,
-            shuffle=True,
-        )
-    )
-    val_dataset = custom_yolo_lib.dataset.coco.tasks.instances.COCOInstances2017(
-        dataset_path,
-        "val",
-        expected_image_size=IMAGE_SIZE,
-        classes=classes,
-        is_sama=True,
-        e2e_preprocessor=e2e_preprocessor,
-    )
-    validation_loader = (
-        custom_yolo_lib.dataset.coco.tasks.loader.COCODataLoaderThreeFeatureMaps(
-            val_dataset,
-            batch_size=BATCH_SIZE,
-            shuffle=False,
-        )
-    )
-    return training_loader, validation_loader
 
 
 def train_one_epoch(
@@ -292,7 +257,15 @@ def main(dataset_path: pathlib.Path, experiment_path: pathlib.Path):
     scheduler = custom_yolo_lib.training.lr_scheduler.StepLRScheduler(
         optimizer, update_step_size=10000
     )
-    training_loader, validation_loader = init_dataloaders(dataset_path)
+    training_loader, validation_loader = (
+        custom_yolo_lib.experiments.dataloaders_factory.init_dataloaders(
+            DATASET_TYPE,
+            dataset_path,
+            num_classes=NUM_CLASSES,
+            image_size=IMAGE_SIZE,
+            batch_size=BATCH_SIZE,
+        )
+    )
 
     loss_s, loss_m, loss_l = custom_yolo_lib.experiments.loss_factory.init_loss(
         LOSS_TYPE,

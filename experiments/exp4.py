@@ -5,8 +5,7 @@ import torch
 import tqdm
 import pandas as pd
 
-import custom_yolo_lib.dataset.coco.tasks.instances
-import custom_yolo_lib.dataset.coco.tasks.loader
+import custom_yolo_lib.experiments.dataloaders_factory
 import custom_yolo_lib.experiments.loss_factory
 import custom_yolo_lib.experiments.model_factory
 import custom_yolo_lib.experiments.optimizer_factory
@@ -14,9 +13,7 @@ import custom_yolo_lib.experiments.utils
 import custom_yolo_lib.image_size
 import custom_yolo_lib.model.e2e.anchor_based.bundled_anchor_based
 import custom_yolo_lib.model.e2e.anchor_based.loss
-import custom_yolo_lib.model.e2e.anchor_based.training_utils
 import custom_yolo_lib.training.lr_scheduler
-import custom_yolo_lib.process.image.e2e
 
 torch.manual_seed(42)
 
@@ -25,8 +22,9 @@ OPTIMIZER_TYPE = (
     custom_yolo_lib.experiments.optimizer_factory.OptimizerType.SPLIT_GROUPS_ADAMW
 )
 LOSS_TYPE = custom_yolo_lib.experiments.loss_factory.LossType.THREESCALE_YOLO
+DATASET_TYPE = custom_yolo_lib.experiments.dataloaders_factory.DatasetType.COCO_SAMA
 BASE_LR = 0.01 / 64
-EXPERIMENT_NAME = "exp3"
+EXPERIMENT_NAME = "exp4"
 WARMUP_EPOCHS = 3
 EPOCHS = 12
 NUM_CLASSES = 80
@@ -41,41 +39,6 @@ BOX_LOSS_GAIN = 0.05
 OBJECTNESS_LOSS_SMALL_MAP_GAIN = 4.0  # bigger grid 80x80 results in smaller loss if BCE
 OBJECTNESS_LOSS_MEDIUM_MAP_GAIN = 1.0
 OBJECTNESS_LOSS_LARGE_MAP_GAIN = 0.4
-# torch.set_anomaly_enabled(True)
-
-
-def init_dataloaders(dataset_path: pathlib.Path):
-    classes = [i for i in range(NUM_CLASSES)]
-    e2e_preprocessor = custom_yolo_lib.process.image.e2e.E2EPreprocessor(
-        expected_image_size=IMAGE_SIZE,
-    )
-    train_dataset = custom_yolo_lib.dataset.coco.tasks.instances.COCOInstances2017(
-        dataset_path,
-        "train",
-        expected_image_size=IMAGE_SIZE,
-        classes=classes,
-        is_sama=True,
-        e2e_preprocessor=e2e_preprocessor,
-    )
-    training_loader = custom_yolo_lib.dataset.coco.tasks.loader.COCODataLoader(
-        train_dataset,
-        batch_size=BATCH_SIZE,
-        shuffle=True,
-    )
-    val_dataset = custom_yolo_lib.dataset.coco.tasks.instances.COCOInstances2017(
-        dataset_path,
-        "val",
-        expected_image_size=IMAGE_SIZE,
-        classes=classes,
-        is_sama=True,
-        e2e_preprocessor=e2e_preprocessor,
-    )
-    validation_loader = custom_yolo_lib.dataset.coco.tasks.loader.COCODataLoader(
-        val_dataset,
-        batch_size=BATCH_SIZE,
-        shuffle=False,
-    )
-    return training_loader, validation_loader
 
 
 def calculate_loss(
@@ -321,7 +284,16 @@ def main(dataset_path: pathlib.Path, experiment_path: pathlib.Path):
         weight_decay=DECAY,
     )
 
-    training_loader, validation_loader = init_dataloaders(dataset_path)
+    training_loader, validation_loader = (
+        custom_yolo_lib.experiments.dataloaders_factory.init_dataloaders(
+            DATASET_TYPE,
+            dataset_path,
+            num_classes=NUM_CLASSES,
+            image_size=IMAGE_SIZE,
+            batch_size=BATCH_SIZE,
+        )
+    )
+
     steps_per_epoch = len(training_loader)
 
     scheduler = torch.optim.lr_scheduler.StepLR(
