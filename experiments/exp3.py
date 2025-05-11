@@ -10,10 +10,10 @@ import custom_yolo_lib.dataset.coco.tasks.loader
 import custom_yolo_lib.experiments.model_factory
 import custom_yolo_lib.experiments.optimizer_factory
 import custom_yolo_lib.experiments.utils
+import custom_yolo_lib.experiments.loss_factory
 import custom_yolo_lib.image_size
 import custom_yolo_lib.model.e2e.anchor_based.bundled_anchor_based
 import custom_yolo_lib.model.e2e.anchor_based.loss
-import custom_yolo_lib.model.e2e.anchor_based.training_utils
 import custom_yolo_lib.training.lr_scheduler
 import custom_yolo_lib.process.image.e2e
 
@@ -21,6 +21,7 @@ torch.manual_seed(42)
 
 MODEL_TYPE = custom_yolo_lib.experiments.model_factory.ModelType.YOLOFPN
 OPTIMIZER_TYPE = custom_yolo_lib.experiments.optimizer_factory.OptimizerType.VANILLA
+LOSS_TYPE = custom_yolo_lib.experiments.loss_factory.LossType.THREESCALE_YOLO
 BASE_LR = 0.01 / 64
 EXPERIMENT_NAME = "exp3"
 WARMUP_EPOCHS = 3
@@ -38,40 +39,6 @@ OBJECTNESS_LOSS_SMALL_MAP_GAIN = 4.0  # bigger grid 80x80 results in smaller los
 OBJECTNESS_LOSS_MEDIUM_MAP_GAIN = 1.0
 OBJECTNESS_LOSS_LARGE_MAP_GAIN = 0.4
 # torch.set_anomaly_enabled(True)
-
-
-def init_losses(
-    model: custom_yolo_lib.model.e2e.anchor_based.bundled_anchor_based.YOLOModel,
-    device: torch.device,
-):
-    predictions_s, predictions_m, predictions_l = model.train_forward2(
-        torch.zeros((1, 3, IMAGE_SIZE.height, IMAGE_SIZE.width)).to(device)
-    )
-
-    small_map_anchors, medium_map_anchors, large_map_anchors = (
-        custom_yolo_lib.model.e2e.anchor_based.training_utils.get_anchors_as_bbox_tensors(
-            device
-        )
-    )
-    loss_s = custom_yolo_lib.model.e2e.anchor_based.loss.YOLOLossPerFeatureMapV2(
-        num_classes=NUM_CLASSES,
-        feature_map_anchors=small_map_anchors,
-        grid_size_h=predictions_s.shape[3],
-        grid_size_w=predictions_s.shape[4],
-    )
-    loss_m = custom_yolo_lib.model.e2e.anchor_based.loss.YOLOLossPerFeatureMapV2(
-        num_classes=NUM_CLASSES,
-        feature_map_anchors=medium_map_anchors,
-        grid_size_h=predictions_m.shape[3],
-        grid_size_w=predictions_m.shape[4],
-    )
-    loss_l = custom_yolo_lib.model.e2e.anchor_based.loss.YOLOLossPerFeatureMapV2(
-        num_classes=NUM_CLASSES,
-        feature_map_anchors=large_map_anchors,
-        grid_size_h=predictions_l.shape[3],
-        grid_size_w=predictions_l.shape[4],
-    )
-    return loss_s, loss_m, loss_l
 
 
 def init_dataloaders(dataset_path: pathlib.Path):
@@ -355,15 +322,15 @@ def main(dataset_path: pathlib.Path, experiment_path: pathlib.Path):
         step_size=int(steps_per_epoch * 0.2),
         gamma=0.9,
     )
-    # scheduler = custom_yolo_lib.training.lr_scheduler.StepLRScheduler(
-    #     optimizer,
-    #     update_step_size=steps_per_epoch,
-    #     # warmup_steps=steps_per_epoch * WARMUP_EPOCHS,
-    #     # max_steps=steps_per_epoch * EPOCHS,
-    # )
 
-    # loss_s, loss_m, loss_l = init_losses(device)
-    loss_s, loss_m, loss_l = init_losses(model, device)
+    loss_type = custom_yolo_lib.experiments.loss_factory.LossType.THREESCALE_YOLO
+    loss_s, loss_m, loss_l = custom_yolo_lib.experiments.loss_factory.init_loss(
+        loss_type,
+        model,
+        device,
+        expected_image_size=IMAGE_SIZE,
+        num_classes=NUM_CLASSES,
+    )
 
     session_loop(
         model,
