@@ -27,25 +27,23 @@ loaded_model = torch.load("model_best.pth", map_location=device)
 model.load_state_dict(loaded_model)
 model.eval()
 
+expected_image_size = custom_yolo_lib.image_size.ImageSize(
+    width=640,
+    height=640,
+)
+e2e_preprocessor = custom_yolo_lib.process.image.e2e.E2EPreprocessor(
+    expected_image_size=expected_image_size,
+)
 input_pipeline = custom_yolo_lib.process.image.pipeline.ImagePipeline(
     dtype_converter=custom_yolo_lib.process.tensor.TensorDtypeConverter(torch.float32),
     normalize=custom_yolo_lib.process.normalize.SimpleImageNormalizer(),
 )
 padding_percent = 0.5
-expected_image_size = custom_yolo_lib.image_size.ImageSize(
-    width=640,
-    height=640,
-)
 camera_image_size = custom_yolo_lib.image_size.ImageSize(
     width=frame_width,
     height=frame_height,
 )
-resize_fixed_ratio_components = (
-    custom_yolo_lib.process.image.resize.fixed_ratio.ResizeFixedRatioComponents_v2(
-        current_image_size=camera_image_size,
-        expected_image_size=expected_image_size,
-    )
-)
+
 
 image_path = pathlib.Path("frame.jpg")
 with torch.no_grad():
@@ -60,13 +58,9 @@ with torch.no_grad():
         img_tensor = custom_yolo_lib.io.read.read_image_torchvision(image_path)
 
         input_tensor = input_pipeline(img_tensor)
-        input_tensor = custom_yolo_lib.process.image.resize.fixed_ratio.resize_image_with_ready_components(
-            input_tensor,
-            fixed_ratio_components=resize_fixed_ratio_components,
-            padding_percent=padding_percent,
-            pad_value=114,
+        input_tensor, resize_fixed_ratio_components = e2e_preprocessor(
+            input_tensor, padding_percent=padding_percent, pad_value=114
         )
-
         input_tensor = input_tensor.unsqueeze(0)
         # Run inference
         detections_batch = model(input_tensor)

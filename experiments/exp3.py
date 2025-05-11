@@ -13,6 +13,7 @@ import custom_yolo_lib.model.e2e.anchor_based.bundled_anchor_based
 import custom_yolo_lib.model.e2e.anchor_based.loss
 import custom_yolo_lib.model.e2e.anchor_based.training_utils
 import custom_yolo_lib.training.lr_scheduler
+import custom_yolo_lib.process.image.e2e
 
 torch.manual_seed(42)
 
@@ -104,12 +105,16 @@ def init_losses(
 
 def init_dataloaders(dataset_path: pathlib.Path):
     classes = [i for i in range(NUM_CLASSES)]
+    e2e_preprocessor = custom_yolo_lib.process.image.e2e.E2EPreprocessor(
+        expected_image_size=IMAGE_SIZE,
+    )
     train_dataset = custom_yolo_lib.dataset.coco.tasks.instances.COCOInstances2017(
         dataset_path,
         "train",
         expected_image_size=IMAGE_SIZE,
         classes=classes,
         is_sama=True,
+        e2e_preprocessor=e2e_preprocessor,
     )
     training_loader = custom_yolo_lib.dataset.coco.tasks.loader.COCODataLoader(
         train_dataset,
@@ -122,6 +127,7 @@ def init_dataloaders(dataset_path: pathlib.Path):
         expected_image_size=IMAGE_SIZE,
         classes=classes,
         is_sama=True,
+        e2e_preprocessor=e2e_preprocessor,
     )
     validation_loader = custom_yolo_lib.dataset.coco.tasks.loader.COCODataLoader(
         val_dataset,

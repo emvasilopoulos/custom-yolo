@@ -12,20 +12,28 @@ import custom_yolo_lib.image_size
 import custom_yolo_lib.model.e2e.anchor_based.bundled_anchor_based
 import custom_yolo_lib.model.e2e.anchor_based.loss
 import custom_yolo_lib.model.e2e.anchor_based.training_utils
-import custom_yolo_lib.training.utils
 import custom_yolo_lib.training.lr_scheduler
 import custom_yolo_lib.process.image.e2e
 
 torch.manual_seed(42)
 
-EXPERIMENT_NAME = "exp1"
-EPOCHS = 300
+BASE_LR = 0.01 / 64
+EXPERIMENT_NAME = "exp3"
+WARMUP_EPOCHS = 3
+EPOCHS = 12
 NUM_CLASSES = 80
-LR = 0.001
-MOMENTUM = 0.937
-DECAY = 0.001
-BATCH_SIZE = 8
+BATCH_SIZE = 16
+LR = BASE_LR * BATCH_SIZE
+MOMENTUM = 0.9
+DECAY = 5e-4
 IMAGE_SIZE = custom_yolo_lib.image_size.ImageSize(640, 640)
+CLASS_LOSS_GAIN = 0.3
+OBJECTNESS_LOSS_GAIN = 0.7
+BOX_LOSS_GAIN = 0.05
+OBJECTNESS_LOSS_SMALL_MAP_GAIN = 4.0  # bigger grid 80x80 results in smaller loss if BCE
+OBJECTNESS_LOSS_MEDIUM_MAP_GAIN = 1.0
+OBJECTNESS_LOSS_LARGE_MAP_GAIN = 0.4
+# torch.set_anomaly_enabled(True)
 
 
 def init_model(
@@ -41,15 +49,22 @@ def init_model(
 def init_optimizer(
     model: custom_yolo_lib.model.e2e.anchor_based.bundled_anchor_based.YOLOModel,
 ) -> torch.optim.Optimizer:
-    parameters_grouped = custom_yolo_lib.training.utils.get_params_grouped(model)
+    # parameters_grouped = custom_yolo_lib.training.utils.get_params_grouped(model)
+    # optimizer = torch.optim.AdamW(
+    #     parameters_grouped.with_weight_decay,
+    #     lr=LR,
+    #     betas=(MOMENTUM, 0.999),
+    #     weight_decay=DECAY,
+    # )
+    # optimizer.add_param_group(
+    #     {"params": parameters_grouped.bias, "weight_decay": DECAY}
+    # )
+    # optimizer.add_param_group(
+    #     {"params": parameters_grouped.no_weight_decay, "weight_decay": 0.0}
+    # )
     optimizer = torch.optim.AdamW(
-        parameters_grouped.bias, lr=LR, betas=(MOMENTUM, 0.999), weight_decay=0.0
-    )
-    optimizer.add_param_group(
-        {"params": parameters_grouped.with_weight_decay, "weight_decay": DECAY}
-    )
-    optimizer.add_param_group(
-        {"params": parameters_grouped.no_weight_decay, "weight_decay": 0.0}
+        model.parameters(),
+        lr=LR,
     )
     return optimizer
 
@@ -101,12 +116,10 @@ def init_dataloaders(dataset_path: pathlib.Path):
         is_sama=True,
         e2e_preprocessor=e2e_preprocessor,
     )
-    training_loader = (
-        custom_yolo_lib.dataset.coco.tasks.loader.COCODataLoaderThreeFeatureMaps(
-            train_dataset,
-            batch_size=BATCH_SIZE,
-            shuffle=True,
-        )
+    training_loader = custom_yolo_lib.dataset.coco.tasks.loader.COCODataLoader(
+        train_dataset,
+        batch_size=BATCH_SIZE,
+        shuffle=True,
     )
     val_dataset = custom_yolo_lib.dataset.coco.tasks.instances.COCOInstances2017(
         dataset_path,
@@ -116,21 +129,33 @@ def init_dataloaders(dataset_path: pathlib.Path):
         is_sama=True,
         e2e_preprocessor=e2e_preprocessor,
     )
-    validation_loader = (
-        custom_yolo_lib.dataset.coco.tasks.loader.COCODataLoaderThreeFeatureMaps(
-            val_dataset,
-            batch_size=BATCH_SIZE,
-            shuffle=False,
-        )
+    validation_loader = custom_yolo_lib.dataset.coco.tasks.loader.COCODataLoader(
+        val_dataset,
+        batch_size=BATCH_SIZE,
+        shuffle=False,
     )
     return training_loader, validation_loader
+
+
+def calculate_loss(
+    losses_s: torch.Tensor, losses_m: torch.Tensor, losses_l: torch.Tensor
+):
+    avg_bbox_loss = (losses_s[0] + losses_m[0] + losses_l[0]) * BOX_LOSS_GAIN
+    avg_objectness_loss = (
+        losses_s[1] * OBJECTNESS_LOSS_SMALL_MAP_GAIN
+        + losses_m[1] * OBJECTNESS_LOSS_MEDIUM_MAP_GAIN
+        + losses_l[1] * OBJECTNESS_LOSS_LARGE_MAP_GAIN
+    ) * OBJECTNESS_LOSS_GAIN
+    avg_class_loss = (losses_s[2] + losses_m[2] + losses_l[2]) * CLASS_LOSS_GAIN
+    loss = avg_bbox_loss + avg_objectness_loss + avg_class_loss
+    return (avg_bbox_loss, avg_objectness_loss, avg_class_loss), loss
 
 
 def train_one_epoch(
     model: custom_yolo_lib.model.e2e.anchor_based.bundled_anchor_based.YOLOModel,
     training_loader: torch.utils.data.DataLoader,
     optimizer: torch.optim.Optimizer,
-    scheduler: custom_yolo_lib.training.lr_scheduler.StepLRScheduler,
+    scheduler: custom_yolo_lib.training.lr_scheduler.WarmupCosineScheduler,
     loss_s: custom_yolo_lib.model.e2e.anchor_based.loss.YOLOLossPerFeatureMapV2,
     loss_m: custom_yolo_lib.model.e2e.anchor_based.loss.YOLOLossPerFeatureMapV2,
     loss_l: custom_yolo_lib.model.e2e.anchor_based.loss.YOLOLossPerFeatureMapV2,
@@ -154,44 +179,53 @@ def train_one_epoch(
     for i, coco_batch in enumerate(tqdm_obj):
 
         images = coco_batch.images_batch.to(device)
-        targets_s = [t.to(device) for t in coco_batch.small_objects_batch]
-        targets_m = [t.to(device) for t in coco_batch.medium_objects_batch]
-        targets_l = [t.to(device) for t in coco_batch.large_objects_batch]
-
-        optimizer.zero_grad()
+        targets = [t.to(device) for t in coco_batch.objects_batch]
 
         predictions_s, predictions_m, predictions_l = model.train_forward2(images)
 
-        total_loss_s, losses_s = loss_s(predictions_s, targets_s)
-        total_loss_m, losses_m = loss_m(predictions_m, targets_m)
-        total_loss_l, losses_l = loss_l(predictions_l, targets_l)
-        loss = total_loss_s + total_loss_m + total_loss_l
+        _, losses_s = loss_s(predictions_s, targets)
+        _, losses_m = loss_m(predictions_m, targets)
+        _, losses_l = loss_l(predictions_l, targets)
+        (avg_bbox_loss, avg_objectness_loss, avg_class_loss), loss = calculate_loss(
+            losses_s, losses_m, losses_l
+        )
+        if torch.isnan(avg_bbox_loss):
+            print("avg_bbox_loss is NaN, skipping step")
+            continue
+        if torch.isnan(avg_objectness_loss):
+            print("avg_objectness_loss is NaN, skipping step")
+            continue
+        if torch.isnan(avg_class_loss):
+            print("avg_class_loss is NaN, skipping step")
+            continue
         if loss == 0:
             print("Loss is zero, skipping step")
             continue
-        loss.backward()
+        if not torch.isnan(loss):
+            loss.backward()
+            optimizer.step()
+            scheduler.step()
+            optimizer.zero_grad()
 
-        scheduler.update_loss(loss)
-        optimizer.step()
-
-        avg_bbox_loss = losses_s[0] + losses_m[0] + losses_l[0]
-        avg_objectness_loss = losses_s[1] + losses_m[1] + losses_l[1]
-        avg_class_loss = losses_s[2] + losses_m[2] + losses_l[2]
-        tqdm_obj.set_description(
-            f"Total: {loss.item():.4f} | BBox: {avg_bbox_loss.item():.4f} | Obj: {avg_objectness_loss.item():.4f} | Class: {avg_class_loss.item():.4f}"
-        )
-        training_session_data["bbox_loss_avg_featmap"].append(avg_bbox_loss.item())
-        training_session_data["objectness_loss_avg_featmap"].append(
-            avg_objectness_loss.item()
-        )
-        training_session_data["class_loss_avg_featmap"].append(avg_class_loss.item())
-        training_session_data["total_loss_avg_featmap"].append(loss.item())
-        training_session_data["epoch"].append(epoch)
-        training_session_data["step"].append(training_step)
-        for i, LR in enumerate(scheduler.get_lr()):
-            if f"lr-{i}" not in training_session_data:
-                training_session_data[f"lr-{i}"] = []
-            training_session_data[f"lr-{i}"].append(LR)
+            tqdm_obj.set_description(
+                f"Total: {loss.item():.4f} | BBox: {avg_bbox_loss.item():.4f} | Obj: {avg_objectness_loss.item():.4f} | Class: {avg_class_loss.item():.4f}"
+            )
+            training_session_data["bbox_loss_avg_featmap"].append(avg_bbox_loss.item())
+            training_session_data["objectness_loss_avg_featmap"].append(
+                avg_objectness_loss.item()
+            )
+            training_session_data["class_loss_avg_featmap"].append(
+                avg_class_loss.item()
+            )
+            training_session_data["total_loss_avg_featmap"].append(loss.item())
+            training_session_data["epoch"].append(epoch)
+            training_session_data["step"].append(training_step)
+            for i, LR in enumerate(scheduler.get_lr()):
+                if f"lr-{i}" not in training_session_data:
+                    training_session_data[f"lr-{i}"] = []
+                training_session_data[f"lr-{i}"].append(LR)
+        else:
+            print("Loss is NaN, skipping step")
         training_step += 1
 
     train_data_path = experiment_path / f"training_session_data_epoch_{epoch}.csv"
@@ -230,19 +264,16 @@ def validate_one_epoch(
             """
 
             images = coco_batch.images_batch.to(device)
-            targets_s = [t.to(device) for t in coco_batch.small_objects_batch]
-            targets_m = [t.to(device) for t in coco_batch.medium_objects_batch]
-            targets_l = [t.to(device) for t in coco_batch.large_objects_batch]
+            targets = [t.to(device) for t in coco_batch.objects_batch]
             predictions_s, predictions_m, predictions_l = model.train_forward2(images)
 
-            total_loss_s, losses_s = loss_s(predictions_s, targets_s)
-            total_loss_m, losses_m = loss_m(predictions_m, targets_m)
-            total_loss_l, losses_l = loss_l(predictions_l, targets_l)
-            loss = total_loss_s + total_loss_m + total_loss_l
+            _, losses_s = loss_s(predictions_s, targets)
+            _, losses_m = loss_m(predictions_m, targets)
+            _, losses_l = loss_l(predictions_l, targets)
+            (avg_bbox_loss, avg_objectness_loss, avg_class_loss), loss = calculate_loss(
+                losses_s, losses_m, losses_l
+            )
 
-            avg_bbox_loss = losses_s[0] + losses_m[0] + losses_l[0]
-            avg_objectness_loss = losses_s[1] + losses_m[1] + losses_l[1]
-            avg_class_loss = losses_s[2] + losses_m[2] + losses_l[2]
             tqdm_obj.set_description(
                 f"Total: {loss.item():.4f} | BBox: {avg_bbox_loss.item():.4f} | Obj: {avg_objectness_loss.item():.4f} | Class: {avg_class_loss.item():.4f}"
             )
@@ -284,6 +315,7 @@ def session_loop(
     training_step = 0
     validation_step = 0
     min_mean_val_loss = float("inf")
+    print(f"INITIAL LEARNING RATES: {scheduler.get_lr()}")
     for epoch in range(EPOCHS):
 
         training_step = train_one_epoch(
@@ -299,6 +331,10 @@ def session_loop(
             experiment_path,
             device,
         )
+
+        print(f"Learning Rates after training epoch:")
+        for lr in scheduler.get_lr():
+            print(f"- {lr:.6f}")
 
         validation_step, mean_val_loss = validate_one_epoch(
             model,
@@ -325,7 +361,7 @@ def session_loop(
 
 def main(dataset_path: pathlib.Path, experiment_path: pathlib.Path):
     experiment_path = custom_yolo_lib.experiments_utils.make_experiment_dir(
-        "exp1", experiment_path
+        EXPERIMENT_NAME, experiment_path
     )
 
     if not torch.cuda.is_available():
@@ -334,11 +370,20 @@ def main(dataset_path: pathlib.Path, experiment_path: pathlib.Path):
 
     model = init_model(device)
     optimizer = init_optimizer(model)
-    scheduler = custom_yolo_lib.training.lr_scheduler.StepLRScheduler(
-        optimizer, update_step_size=10000
-    )
     training_loader, validation_loader = init_dataloaders(dataset_path)
-    # loss_s, loss_m, loss_l = init_losses(device)
+    steps_per_epoch = len(training_loader)
+
+    scheduler = torch.optim.lr_scheduler.StepLR(
+        optimizer,
+        step_size=int(steps_per_epoch * 0.2),
+        gamma=0.9,
+    )
+    scheduler = custom_yolo_lib.training.lr_scheduler.WarmupCosineScheduler(
+        optimizer,
+        warmup_steps=steps_per_epoch * WARMUP_EPOCHS,
+        max_steps=steps_per_epoch * EPOCHS,
+    )
+
     loss_s, loss_m, loss_l = init_losses(model, device)
 
     session_loop(
