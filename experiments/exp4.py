@@ -7,7 +7,7 @@ import pandas as pd
 
 import custom_yolo_lib.dataset.coco.tasks.instances
 import custom_yolo_lib.dataset.coco.tasks.loader
-import custom_yolo_lib.experiments_utils
+import custom_yolo_lib.experiments.utils
 import custom_yolo_lib.image_size
 import custom_yolo_lib.model.e2e.anchor_based.bundled_anchor_based
 import custom_yolo_lib.model.e2e.anchor_based.loss
@@ -360,7 +360,7 @@ def session_loop(
 
 
 def main(dataset_path: pathlib.Path, experiment_path: pathlib.Path):
-    experiment_path = custom_yolo_lib.experiments_utils.make_experiment_dir(
+    experiment_path = custom_yolo_lib.experiments.utils.make_experiment_dir(
         EXPERIMENT_NAME, experiment_path
     )
 
