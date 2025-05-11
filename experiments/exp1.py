@@ -19,6 +19,10 @@ import custom_yolo_lib.process.image.e2e
 
 torch.manual_seed(42)
 
+MODEL_TYPE = custom_yolo_lib.experiments.model_factory.ModelType.YOLO
+OPTIMIZER_TYPE = (
+    custom_yolo_lib.experiments.optimizer_factory.OptimizerType.SPLIT_GROUPS_ADAMW
+)
 EXPERIMENT_NAME = "exp1"
 EPOCHS = 300
 NUM_CLASSES = 80
@@ -307,15 +311,12 @@ def main(dataset_path: pathlib.Path, experiment_path: pathlib.Path):
         raise RuntimeError("CUDA is not available. Why bother bro?.")
     device = torch.device("cuda:0")
 
-    model_type = custom_yolo_lib.experiments.model_factory.ModelType.YOLO
     model = custom_yolo_lib.experiments.model_factory.init_model(
-        model_type=model_type, device=device, num_classes=NUM_CLASSES
+        model_type=MODEL_TYPE, device=device, num_classes=NUM_CLASSES
     )
-    optimizer_type = (
-        custom_yolo_lib.experiments.optimizer_factory.OptimizerType.SPLIT_GROUPS_ADAMW
-    )
+
     optimizer = custom_yolo_lib.experiments.optimizer_factory.init_optimizer(
-        optimizer_type,
+        OPTIMIZER_TYPE,
         model,
         initial_lr=LR,
         momentum=MOMENTUM,
