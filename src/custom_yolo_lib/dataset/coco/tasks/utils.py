@@ -1,14 +1,23 @@
 import enum
+
 import torch
-import custom_yolo_lib.dataset
+
 import custom_yolo_lib.dataset.object
-import custom_yolo_lib.process.bbox
+
 
 class AnnotationsType(enum.Enum):
     json = "json"
     csv = "csv"
 
-def get_task_file(task_name: str, split: str, year: str, is_grouped: bool, filetype: AnnotationsType) -> str:
+
+def get_task_file(
+    task_name: str,
+    split: str,
+    year: str,
+    is_grouped: bool,
+    filetype: AnnotationsType,
+    is_sama: bool = False,
+) -> str:
     """
     Get the task file path based on the task name, split, and year.
 
@@ -20,9 +29,14 @@ def get_task_file(task_name: str, split: str, year: str, is_grouped: bool, filet
     Returns:
         str: The path to the task file.
     """
+    if is_sama:
+        prefix = "sama_"
+    else:
+        prefix = ""
     if is_grouped:
-        return f"{task_name}_{split}{year}_grouped_by_image_id.{filetype.value}"
-    return f"{task_name}_{split}{year}.{filetype.value}"
+        return f"{prefix}{task_name}_{split}{year}_grouped_by_image_id.{filetype.value}"
+
+    return f"{prefix}{task_name}_{split}{year}.{filetype.value}"
 
 
 def create_empty_coco_object_tensor(
@@ -56,7 +70,7 @@ def create_empty_coco_object_tensor(
         device=device,
         dtype=dtype,
         requires_grad=False,
-    )        
+    )
 
 
 def object_to_tensor(
@@ -93,5 +107,5 @@ def object_to_tensor(
     x[2] = object_.bbox.w
     x[3] = object_.bbox.h
     x[4] = 1.0  # objectness
-    x[5 + object_.class_id - 1] = 1.0  # class_id
+    x[5 + object_.class_id] = 1.0  # class_id
     return x

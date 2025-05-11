@@ -24,6 +24,13 @@ class COCOInstances2017(
         image_filename = self._image_file_name_from_id(sample["image_id"].values[0])
         return self.images_dir / image_filename
 
+    def _is_in_classes(self, class_id: int) -> bool:
+        # TODO: replace with dictionary search
+        return 0 < class_id < len(self.desired_classes)
+
+    def _norm(self, coord: float, dim_size: int) -> float:
+        return max(0, min(1, coord / dim_size))
+
     def _extract_objects(
         self, sample: pd.DataFrame, image_size: custom_yolo_lib.image_size.ImageSize
     ):
@@ -34,20 +41,26 @@ class COCOInstances2017(
         is_crowds = sample["iscrowd"].values
         class_ids = sample["category_id"].values
         objects_ = []
-        for x1, y1, w, h, class_id, is_crowd in zip(x1s, y1s, ws, hs, class_ids, is_crowds):
+        for x1, y1, w, h, class_id, is_crowd in zip(
+            x1s, y1s, ws, hs, class_ids, is_crowds
+        ):
+            if not self._is_in_classes(class_id):
+                continue
+
             if is_crowd:
                 continue
+
             bbox = custom_yolo_lib.process.bbox.Bbox(
-                x=x1 / image_size.width,
-                y=y1 / image_size.height,
-                w=w / image_size.width,
-                h=h / image_size.height,
+                x=self._norm(x1, image_size.width),
+                y=self._norm(y1, image_size.height),
+                w=self._norm(w, image_size.width),
+                h=self._norm(h, image_size.height),
                 is_normalized=True,
             )
             objects_.append(
                 custom_yolo_lib.dataset.object.Object(
                     bbox=bbox,
-                    class_id=class_id,
+                    class_id=class_id - 1,  # 0-based index
                 )
             )
         return objects_

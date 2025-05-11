@@ -23,10 +23,7 @@ def translate_bbox_to_resized_image(
     Returns:
         _type_: _description_
     """
-    if not (padding.top or padding.right or padding.bottom or padding.left):
-        raise ValueError(
-            "Padding values should be positive. Otherwise, no use of using this function"
-        )
+
     new_width = (
         resize_components.resized_image_size.width + padding.left + padding.right
     )
@@ -50,8 +47,12 @@ def translate_bbox_to_resized_image(
             w=w_norm,
             h=h_norm,
             is_normalized=True,
+            is_top_left=bbox.is_top_left,
         )
     else:
+        raise NotImplementedError(
+            "There is something wrong with the current implementation. Do not use yet."
+        )
         x_norm = bbox.x / resize_components.current_image_size.width
         y_norm = bbox.y / resize_components.current_image_size.height
         w0_norm = bbox.w / resize_components.current_image_size.width

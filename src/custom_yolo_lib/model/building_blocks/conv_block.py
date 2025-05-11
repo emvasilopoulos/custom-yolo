@@ -10,7 +10,7 @@ class ConvBlock(torch.nn.Module):
         kernel_size: int,
         stride: int,
         padding: int,
-        activation: torch.nn.Module = torch.nn.LeakyReLU(0.1),
+        activation: torch.nn.Module = torch.nn.SiLU(),
     ) -> None:
         super(ConvBlock, self).__init__()
         self.conv = torch.nn.Conv2d(

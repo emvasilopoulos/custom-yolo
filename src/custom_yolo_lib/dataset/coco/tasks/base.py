@@ -6,7 +6,10 @@ import enum
 
 import torch
 
-import custom_yolo_lib.config
+from custom_yolo_lib.dataset.coco.tasks.sample import (
+    COCODatasetSample,
+    COCODatasetSampleKeys,
+)
 import custom_yolo_lib.dataset.coco.tasks.utils
 import custom_yolo_lib.dataset.object
 import custom_yolo_lib.io.read
@@ -64,8 +67,8 @@ class BaseCOCODatasetGrouped(torch.utils.data.Dataset):
         split: str,
         expected_image_size: custom_yolo_lib.image_size.ImageSize,
         classes: List[str] = None,
-        device: torch.device = torch.device("cpu"),
         dtype: torch.dtype = torch.float32,
+        is_sama: bool = True,  # the oriinal is CRAP
     ):
         """
         Args:
@@ -78,7 +81,6 @@ class BaseCOCODatasetGrouped(torch.utils.data.Dataset):
         self.data_dir = data_dir
         self.split = split
         self.expected_image_size = expected_image_size
-        self.device = device
         self.dtype = dtype
         year = self.get_year()
         coco_type = self.get_type()
@@ -89,7 +91,7 @@ class BaseCOCODatasetGrouped(torch.utils.data.Dataset):
         if classes is not None:
             self.desired_classes = classes
         else:
-            self.desired_classes = [str(i+1) for i in range(90)]
+            self.desired_classes = [str(i + 1) for i in range(80)]
 
         self.input_pipeline = custom_yolo_lib.process.image.pipeline.ImagePipeline(
             dtype_converter=custom_yolo_lib.process.tensor.TensorDtypeConverter(
@@ -101,7 +103,12 @@ class BaseCOCODatasetGrouped(torch.utils.data.Dataset):
         annotations_path = (
             annotations_dir
             / custom_yolo_lib.dataset.coco.tasks.utils.get_task_file(
-                coco_type, split, str(year), is_grouped=True, filetype=custom_yolo_lib.dataset.coco.tasks.utils.AnnotationsType.csv
+                coco_type,
+                split,
+                str(year),
+                is_grouped=True,
+                filetype=custom_yolo_lib.dataset.coco.tasks.utils.AnnotationsType.csv,
+                is_sama=is_sama,
             )
         )
 
@@ -111,7 +118,7 @@ class BaseCOCODatasetGrouped(torch.utils.data.Dataset):
         img_tensor = custom_yolo_lib.io.read.read_image_torchvision(image_path)
         if img_tensor.shape[0] == 1:
             img_tensor = img_tensor.repeat(3, 1, 1)
-        return self.input_pipeline(img_tensor)
+        return img_tensor
 
     def _image_file_name_from_id(self, image_id: int) -> str:
         return f"{image_id:012}.jpg"
@@ -141,6 +148,36 @@ class BaseCOCODatasetGrouped(torch.utils.data.Dataset):
         """
         pass
 
+    def _translate_objects_to_resized_image(
+        self,
+        objects: List[custom_yolo_lib.dataset.object.Object],
+        resize_fixed_ratio_components: custom_yolo_lib.process.image.resize.fixed_ratio.ResizeFixedRatioComponents_v2,
+        padding_percent: float,
+        pad_value: int,
+    ) -> List[custom_yolo_lib.dataset.object.Object]:
+        # if len(objects) > MAX_OBJECTS_PER_IMAGE:
+        #     raise ValueError(
+        #         f"Number of objects {len(objects)} exceeds maximum {MAX_OBJECTS_PER_IMAGE}."
+        #     )
+        # Resize bboxes to match resized image
+        resize_components, padding = (
+            resize_fixed_ratio_components.get_translation_components(
+                padding_percent, pad_value
+            )
+        )
+
+        for i, object_ in enumerate(objects):
+            if not object_.bbox.is_normalized:
+                raise ValueError(f"Object bbox {object_.bbox} is not normalized.")
+            object_.bbox = (
+                custom_yolo_lib.process.bbox.translate.translate_bbox_to_resized_image(
+                    bbox=object_.bbox,
+                    resize_components=resize_components,
+                    padding=padding,
+                )
+            )
+        return objects
+
     def _prepare_objects_tensor(
         self,
         objects: List[custom_yolo_lib.dataset.object.Object],
@@ -154,17 +191,20 @@ class BaseCOCODatasetGrouped(torch.utils.data.Dataset):
             )
         # Resize bboxes to match resized image
         resize_components, padding = (
-            resize_fixed_ratio_components.get_translation_components(padding_percent, pad_value)
+            resize_fixed_ratio_components.get_translation_components(
+                padding_percent, pad_value
+            )
         )
         objects_tensor = (
             custom_yolo_lib.dataset.coco.tasks.utils.create_empty_coco_object_tensor(
                 n_coco_classes=len(self.desired_classes),
                 n_objects=MAX_OBJECTS_PER_IMAGE,
                 dtype=self.dtype,
-                device=self.device,
             )
         )
         for i, object_ in enumerate(objects):
+            if not object_.bbox.is_normalized:
+                raise ValueError(f"Object bbox {object_.bbox} is not normalized.")
             object_.bbox = (
                 custom_yolo_lib.process.bbox.translate.translate_bbox_to_resized_image(
                     bbox=object_.bbox,
@@ -177,12 +217,11 @@ class BaseCOCODatasetGrouped(torch.utils.data.Dataset):
                     object_=object_,
                     n_coco_classes=len(self.desired_classes),
                     dtype=self.dtype,
-                    device=self.device,
                 )
             )
         return objects_tensor
 
-    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
+    def __getitem__(self, idx: int) -> COCODatasetSample:
         image_path, objects = self._get_coco_item(idx)
 
         # Read image
@@ -204,13 +243,32 @@ class BaseCOCODatasetGrouped(torch.utils.data.Dataset):
             pad_value=pad_value,
         )
 
-        standard_resized_objects_tensor = self._prepare_objects_tensor(
+        translated_objects = self._translate_objects_to_resized_image(
             objects=objects,
             resize_fixed_ratio_components=resize_fixed_ratio_components,
             padding_percent=padding_percent,
             pad_value=pad_value,
         )
-        return standard_resized_img_tensor, standard_resized_objects_tensor
+        assert len(translated_objects) == len(objects)  # sanity check
+
+        # NOTE: sacrificing "optimization" for readability (meaning I could run this in a previous loop)
+        for obj in translated_objects:
+            obj.bbox.to_center()
+
+        if not translated_objects:
+            objects_tensor = torch.tensor([])
+        else:
+            objects_tensor = torch.stack(
+                [obj.to_tensor() for obj in translated_objects]
+            )
+
+        return {
+            COCODatasetSampleKeys.IMAGE_TENSOR: standard_resized_img_tensor,
+            COCODatasetSampleKeys.OBJECTS_TENSOR: objects_tensor,
+            COCODatasetSampleKeys.OBJECTS_COUNT: torch.tensor(
+                [len(objects)], dtype=torch.uint16
+            ),
+        }
 
 
 class COCODatasetInstances2017(BaseCOCODatasetGrouped):

@@ -10,7 +10,7 @@ def parse_args() -> Tuple[bool, bool, bool, pathlib.Path]:
     parser.add_argument(
         "--save_dir",
         type=pathlib.Path,
-        default=pathlib.Path("/TODO"),
+        default=pathlib.Path("/home/manos/custom_yolo_lib/coco_data"),
         help="Directory to save the dataset",
     )
     parser.add_argument(
