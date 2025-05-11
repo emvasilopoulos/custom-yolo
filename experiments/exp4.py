@@ -7,6 +7,8 @@ import pandas as pd
 
 import custom_yolo_lib.dataset.coco.tasks.instances
 import custom_yolo_lib.dataset.coco.tasks.loader
+import custom_yolo_lib.experiments.model_factory
+import custom_yolo_lib.experiments.optimizer_factory
 import custom_yolo_lib.experiments.utils
 import custom_yolo_lib.image_size
 import custom_yolo_lib.model.e2e.anchor_based.bundled_anchor_based
@@ -14,7 +16,6 @@ import custom_yolo_lib.model.e2e.anchor_based.loss
 import custom_yolo_lib.model.e2e.anchor_based.training_utils
 import custom_yolo_lib.training.lr_scheduler
 import custom_yolo_lib.process.image.e2e
-import custom_yolo_lib.experiments.model_factory
 
 torch.manual_seed(42)
 
@@ -35,29 +36,6 @@ OBJECTNESS_LOSS_SMALL_MAP_GAIN = 4.0  # bigger grid 80x80 results in smaller los
 OBJECTNESS_LOSS_MEDIUM_MAP_GAIN = 1.0
 OBJECTNESS_LOSS_LARGE_MAP_GAIN = 0.4
 # torch.set_anomaly_enabled(True)
-
-
-def init_optimizer(
-    model: custom_yolo_lib.model.e2e.anchor_based.bundled_anchor_based.YOLOModel,
-) -> torch.optim.Optimizer:
-    # parameters_grouped = custom_yolo_lib.training.utils.get_params_grouped(model)
-    # optimizer = torch.optim.AdamW(
-    #     parameters_grouped.with_weight_decay,
-    #     lr=LR,
-    #     betas=(MOMENTUM, 0.999),
-    #     weight_decay=DECAY,
-    # )
-    # optimizer.add_param_group(
-    #     {"params": parameters_grouped.bias, "weight_decay": DECAY}
-    # )
-    # optimizer.add_param_group(
-    #     {"params": parameters_grouped.no_weight_decay, "weight_decay": 0.0}
-    # )
-    optimizer = torch.optim.AdamW(
-        model.parameters(),
-        lr=LR,
-    )
-    return optimizer
 
 
 def init_losses(
@@ -363,7 +341,17 @@ def main(dataset_path: pathlib.Path, experiment_path: pathlib.Path):
     model = custom_yolo_lib.experiments.model_factory.init_model(
         model_type=model_type, device=device, num_classes=NUM_CLASSES
     )
-    optimizer = init_optimizer(model)
+    optimizer_type = (
+        custom_yolo_lib.experiments.optimizer_factory.OptimizerType.SPLIT_GROUPS_ADAMW
+    )
+    optimizer = custom_yolo_lib.experiments.optimizer_factory.init_optimizer(
+        optimizer_type,
+        model,
+        initial_lr=LR,
+        momentum=MOMENTUM,
+        weight_decay=DECAY,
+    )
+
     training_loader, validation_loader = init_dataloaders(dataset_path)
     steps_per_epoch = len(training_loader)
 

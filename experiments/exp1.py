@@ -9,11 +9,11 @@ import custom_yolo_lib.dataset.coco.tasks.instances
 import custom_yolo_lib.dataset.coco.tasks.loader
 import custom_yolo_lib.experiments.model_factory
 import custom_yolo_lib.experiments.utils
+import custom_yolo_lib.experiments.optimizer_factory
 import custom_yolo_lib.image_size
 import custom_yolo_lib.model.e2e.anchor_based.bundled_anchor_based
 import custom_yolo_lib.model.e2e.anchor_based.loss
 import custom_yolo_lib.model.e2e.anchor_based.training_utils
-import custom_yolo_lib.training.utils
 import custom_yolo_lib.training.lr_scheduler
 import custom_yolo_lib.process.image.e2e
 
@@ -27,22 +27,6 @@ MOMENTUM = 0.937
 DECAY = 0.001
 BATCH_SIZE = 8
 IMAGE_SIZE = custom_yolo_lib.image_size.ImageSize(640, 640)
-
-
-def init_optimizer(
-    model: custom_yolo_lib.model.e2e.anchor_based.bundled_anchor_based.YOLOModel,
-) -> torch.optim.Optimizer:
-    parameters_grouped = custom_yolo_lib.training.utils.get_params_grouped(model)
-    optimizer = torch.optim.AdamW(
-        parameters_grouped.bias, lr=LR, betas=(MOMENTUM, 0.999), weight_decay=0.0
-    )
-    optimizer.add_param_group(
-        {"params": parameters_grouped.with_weight_decay, "weight_decay": DECAY}
-    )
-    optimizer.add_param_group(
-        {"params": parameters_grouped.no_weight_decay, "weight_decay": 0.0}
-    )
-    return optimizer
 
 
 def init_losses(
@@ -327,7 +311,16 @@ def main(dataset_path: pathlib.Path, experiment_path: pathlib.Path):
     model = custom_yolo_lib.experiments.model_factory.init_model(
         model_type=model_type, device=device, num_classes=NUM_CLASSES
     )
-    optimizer = init_optimizer(model)
+    optimizer_type = (
+        custom_yolo_lib.experiments.optimizer_factory.OptimizerType.SPLIT_GROUPS_ADAMW
+    )
+    optimizer = custom_yolo_lib.experiments.optimizer_factory.init_optimizer(
+        optimizer_type,
+        model,
+        initial_lr=LR,
+        momentum=MOMENTUM,
+        weight_decay=DECAY,
+    )
     scheduler = custom_yolo_lib.training.lr_scheduler.StepLRScheduler(
         optimizer, update_step_size=10000
     )
