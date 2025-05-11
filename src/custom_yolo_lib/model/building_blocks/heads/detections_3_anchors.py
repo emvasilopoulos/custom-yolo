@@ -148,7 +148,7 @@ class DetectionHead(torch.nn.Module):
             grids = _make_grids(grid_size_h, grid_size_w, device=out.device)
             self.meshgrids[f"{grid_size_h}_{grid_size_w}"] = grids
         return decode_output(
-            out, self._multiplier, grids
+            out, self._multiplier, anchors=self.anchors, grids=grids
         )  # (batch_size, num_anchors, feats_per_anchor, grid_size_h, grid_size_w)
 
     def train_forward(
@@ -199,7 +199,10 @@ def _make_grids(
 
 
 def decode_output(
-    out: torch.Tensor, multiplier: int, grids: Optional[List[torch.Tensor]] = None
+    out: torch.Tensor,
+    multiplier: int,
+    anchors: torch.Tensor,
+    grids: Optional[List[torch.Tensor]] = None,
 ) -> torch.Tensor:
     # https://paperswithcode.com/method/grid-sensitive
     # apply in x,y,w,h
@@ -212,13 +215,16 @@ def decode_output(
         grids = _make_grids(grid_size_h, grid_size_w, device=out.device)
     grid_y, grid_x = grids
 
-    # Add grid offsets to x coordinates (index 0)
-    out[:, :, 0, :, :].add_(grid_x)
+    # Add grid offsets to x coordinates (index 0) & normalize
+    out[:, :, 0, :, :].add_(grid_x).div_(grid_x.shape[3])
 
-    # Add grid offsets to y coordinates (index 1)
-    out[:, :, 1, :, :].add_(grid_y)
+    # Add grid offsets to y coordinates (index 1) & normalize
+    out[:, :, 1, :, :].add_(grid_y).div_(grid_y.shape[3])
 
     """ NOTE: matches with custom_yolo_lib.model.e2e.anchor_based.training_utils.build_feature_map_targets """
     # wh
     out[:, :, 2:4, :, :].mul_(multiplier).pow_(2)  # TODO: multiply with anchor priors
+    for i, anchor in enumerate(anchors):
+        out[:, i, 2, :, :].mul_(anchor[2])
+        out[:, i, 3, :, :].mul_(anchor[3])
     return out
