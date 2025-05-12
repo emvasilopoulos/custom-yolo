@@ -300,11 +300,6 @@ def main(dataset_path: pathlib.Path, experiment_path: pathlib.Path):
 
     steps_per_epoch = len(training_loader)
 
-    scheduler = torch.optim.lr_scheduler.StepLR(
-        optimizer,
-        step_size=int(steps_per_epoch * 0.2),
-        gamma=0.9,
-    )
     scheduler = custom_yolo_lib.training.lr_scheduler.WarmupCosineScheduler(
         optimizer,
         warmup_steps=steps_per_epoch * WARMUP_EPOCHS,
