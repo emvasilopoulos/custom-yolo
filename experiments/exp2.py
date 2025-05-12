@@ -12,6 +12,7 @@ import pandas as pd
 
 import custom_yolo_lib.experiments.dataloaders_factory
 import custom_yolo_lib.experiments.optimizer_factory
+import custom_yolo_lib.experiments.schedulers_factory
 import custom_yolo_lib.experiments.loss_factory
 import custom_yolo_lib.experiments.utils
 import custom_yolo_lib.image_size
@@ -29,6 +30,9 @@ OPTIMIZER_TYPE = (
 )
 LOSS_TYPE = custom_yolo_lib.experiments.loss_factory.LossType.THREESCALE_YOLO
 DATASET_TYPE = custom_yolo_lib.experiments.dataloaders_factory.DatasetType.COCO_SAMA
+SCHEDULER_TYPE = (
+    custom_yolo_lib.experiments.schedulers_factory.SchedulerType.WARMUP_COSINE
+)
 BASE_LR = 0.01 / 64
 EXPERIMENT_NAME = "exp2"
 WARMUP_EPOCHS = 3
@@ -311,7 +315,9 @@ def main(dataset_path: pathlib.Path, experiment_path: pathlib.Path):
         )
     )
     steps_per_epoch = len(training_loader)
-    scheduler = custom_yolo_lib.training.lr_scheduler.WarmupCosineScheduler(
+
+    scheduler = custom_yolo_lib.experiments.schedulers_factory.init_scheduler(
+        SCHEDULER_TYPE,
         optimizer,
         warmup_steps=steps_per_epoch * WARMUP_EPOCHS,
         max_steps=steps_per_epoch * EPOCHS,

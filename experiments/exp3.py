@@ -5,18 +5,16 @@ import torch
 import tqdm
 import pandas as pd
 
-import custom_yolo_lib.dataset.coco.tasks.instances
-import custom_yolo_lib.dataset.coco.tasks.loader
 import custom_yolo_lib.experiments.dataloaders_factory
 import custom_yolo_lib.experiments.model_factory
 import custom_yolo_lib.experiments.optimizer_factory
+import custom_yolo_lib.experiments.schedulers_factory
 import custom_yolo_lib.experiments.utils
 import custom_yolo_lib.experiments.loss_factory
 import custom_yolo_lib.image_size
 import custom_yolo_lib.model.e2e.anchor_based.bundled_anchor_based
 import custom_yolo_lib.model.e2e.anchor_based.loss
 import custom_yolo_lib.training.lr_scheduler
-import custom_yolo_lib.process.image.e2e
 
 torch.manual_seed(42)
 
@@ -24,6 +22,7 @@ MODEL_TYPE = custom_yolo_lib.experiments.model_factory.ModelType.YOLOFPN
 OPTIMIZER_TYPE = custom_yolo_lib.experiments.optimizer_factory.OptimizerType.VANILLA
 LOSS_TYPE = custom_yolo_lib.experiments.loss_factory.LossType.THREESCALE_YOLO
 DATASET_TYPE = custom_yolo_lib.experiments.dataloaders_factory.DatasetType.COCO_SAMA
+SCHEDULER_TYPE = custom_yolo_lib.experiments.schedulers_factory.SchedulerType.STEP
 BASE_LR = 0.01 / 64
 EXPERIMENT_NAME = "exp3"
 WARMUP_EPOCHS = 3

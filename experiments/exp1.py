@@ -5,11 +5,10 @@ import torch
 import tqdm
 import pandas as pd
 
-import custom_yolo_lib.dataset.coco.tasks.instances
-import custom_yolo_lib.dataset.coco.tasks.loader
 import custom_yolo_lib.experiments.model_factory
 import custom_yolo_lib.experiments.utils
 import custom_yolo_lib.experiments.optimizer_factory
+import custom_yolo_lib.experiments.schedulers_factory
 import custom_yolo_lib.experiments.loss_factory
 import custom_yolo_lib.experiments.dataloaders_factory
 import custom_yolo_lib.image_size
@@ -27,6 +26,7 @@ LOSS_TYPE = custom_yolo_lib.experiments.loss_factory.LossType.THREESCALE_YOLO
 DATASET_TYPE = (
     custom_yolo_lib.experiments.dataloaders_factory.DatasetType.COCO_ORIGINAL_THREE_FEATURE_MAPS
 )
+SCHEDULER_TYPE = custom_yolo_lib.experiments.schedulers_factory.SchedulerType.STEP
 EXPERIMENT_NAME = "exp1"
 EPOCHS = 300
 NUM_CLASSES = 80
@@ -254,9 +254,12 @@ def main(dataset_path: pathlib.Path, experiment_path: pathlib.Path):
         momentum=MOMENTUM,
         weight_decay=DECAY,
     )
-    scheduler = custom_yolo_lib.training.lr_scheduler.StepLRScheduler(
-        optimizer, update_step_size=10000
+    scheduler = custom_yolo_lib.experiments.schedulers_factory.init_scheduler(
+        SCHEDULER_TYPE,
+        optimizer,
+        update_step_size=10000,
     )
+
     training_loader, validation_loader = (
         custom_yolo_lib.experiments.dataloaders_factory.init_dataloaders(
             DATASET_TYPE,
