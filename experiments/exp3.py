@@ -220,7 +220,7 @@ def session_loop(
     training_step = 0
     validation_step = 0
     min_mean_val_loss = float("inf")
-    print(f"INITIAL LEARNING RATES: {scheduler.get_lr()}")
+
     for epoch in range(EPOCHS):
 
         training_step = train_one_epoch(

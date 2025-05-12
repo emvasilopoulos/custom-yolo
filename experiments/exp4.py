@@ -17,11 +17,11 @@ import custom_yolo_lib.training.lr_scheduler
 
 torch.manual_seed(42)
 
-MODEL_TYPE = custom_yolo_lib.experiments.model_factory.ModelType.YOLOFPN
+MODEL_TYPE = custom_yolo_lib.experiments.model_factory.ModelType.YOLO
 OPTIMIZER_TYPE = (
     custom_yolo_lib.experiments.optimizer_factory.OptimizerType.SPLIT_GROUPS_ADAMW
 )
-LOSS_TYPE = custom_yolo_lib.experiments.loss_factory.LossType.THREESCALE_YOLO
+LOSS_TYPE = custom_yolo_lib.experiments.loss_factory.LossType.THREESCALE_YOLO_ORD
 DATASET_TYPE = custom_yolo_lib.experiments.dataloaders_factory.DatasetType.COCO_SAMA
 BASE_LR = 0.01 / 64
 EXPERIMENT_NAME = "exp4"
@@ -94,14 +94,14 @@ def train_one_epoch(
             losses_s, losses_m, losses_l
         )
         if torch.isnan(avg_bbox_loss):
-            print("avg_bbox_loss is NaN, skipping step")
-            continue
+            print("avg_bbox_loss is NaN, EXITING...")
+            exit(1)
         if torch.isnan(avg_objectness_loss):
-            print("avg_objectness_loss is NaN, skipping step")
-            continue
+            print("avg_objectness_loss is NaN, EXITING...")
+            exit(1)
         if torch.isnan(avg_class_loss):
-            print("avg_class_loss is NaN, skipping step")
-            continue
+            print("avg_class_loss is NaN, EXITING...")
+            exit(1)
         if loss == 0:
             print("Loss is zero, skipping step")
             continue
@@ -219,7 +219,11 @@ def session_loop(
     training_step = 0
     validation_step = 0
     min_mean_val_loss = float("inf")
-    print(f"INITIAL LEARNING RATES: {scheduler.get_lr()}")
+
+    print(f"INITIAL Learning Rates:")
+    for lr in scheduler.get_lr():
+        print(f"- {lr:.9f}")
+
     for epoch in range(EPOCHS):
 
         training_step = train_one_epoch(
@@ -238,7 +242,7 @@ def session_loop(
 
         print(f"Learning Rates after training epoch:")
         for lr in scheduler.get_lr():
-            print(f"- {lr:.6f}")
+            print(f"- {lr:.9f}")
 
         validation_step, mean_val_loss = validate_one_epoch(
             model,
