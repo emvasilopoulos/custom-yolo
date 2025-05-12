@@ -82,7 +82,7 @@ def train_one_epoch(
             continue
         loss.backward()
 
-        scheduler.update_loss(loss)
+        scheduler.step(loss)
         optimizer.step()
 
         avg_bbox_loss = losses_s[0] + losses_m[0] + losses_l[0]

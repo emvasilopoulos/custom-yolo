@@ -1,6 +1,7 @@
 import abc
 import collections
 import logging
+import math
 import random
 from typing import List
 
@@ -9,6 +10,8 @@ import torch
 
 import custom_yolo_lib.logging
 
+# TODO: make all scheduler implement warmup steps option
+# TODO #2: make all inherit from 'torch.optim.lr_scheduler.LRScheduler'
 
 class BaseLRScheduler:
 
@@ -26,7 +29,7 @@ class BaseLRScheduler:
         self.optimizer = optimizer
 
     @abc.abstractmethod
-    def update_loss(self, loss: torch.nn.Module):
+    def step(self, loss: torch.nn.Module = None):
         pass
 
 
@@ -46,7 +49,7 @@ class StepLRScheduler(BaseLRScheduler):
             param_group["lr"] for param_group in self.optimizer.param_groups
         ]
 
-    def update_loss(self, loss: torch.nn.Module):
+    def step(self, loss: torch.nn.Module = None):
         self.__current_step += 1
         if self.__current_step % self.__step_size == 0:
             perc = (
@@ -94,7 +97,7 @@ class MyLRScheduler(BaseLRScheduler):
         m, b = np.polyfit(x, y, 1)
         return m, b
 
-    def update_loss(self, loss: torch.nn.Module):
+    def step(self, loss: torch.nn.Module = None):
         self.losses.append(loss.item())
         current_mean = torch.Tensor(self.losses).mean()
         self.loss_moving_average.append(current_mean)
@@ -136,7 +139,7 @@ class WarmupLRScheduler(BaseLRScheduler):
         ]
         self.upate_step_size = update_step_size
 
-    def update_loss(self, loss: torch.nn.Module):
+    def step(self, loss: torch.nn.Module):
         self.current_step += 1
         if self.current_step <= self.warmup_steps:
             for i, param_group in enumerate(self.optimizer.param_groups):
@@ -155,7 +158,6 @@ class WarmupLRScheduler(BaseLRScheduler):
     def get_lr(self):
         return [param_group["lr"] for param_group in self.optimizer.param_groups]
 
-import math
 
 class WarmupCosineScheduler(torch.optim.lr_scheduler.LRScheduler):
     """Cosine decay with linear warm-up.
