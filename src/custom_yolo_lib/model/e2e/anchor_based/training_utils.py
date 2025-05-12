@@ -59,8 +59,8 @@ def build_feature_map_targets(
     grid_size_w: int,
     num_classes: int,
     check_values: bool = False,
-    positive_sample_iou_thershold: float = 0.3,
     epsilon: float = 1e-4,
+    is_ordinal_objectness: bool = False,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     anchors = anchor_tensor.anchors
     num_anchors = anchors.shape[0]
@@ -140,104 +140,13 @@ def build_feature_map_targets(
 
             # Update objectness
             targets[a_idx, 4, g_y, g_x] = 1.0
-            # _bump_objectness(targets, a_idx, g_y, g_x, max_value=objectness_score)
+            if is_ordinal_objectness:
+                _bump_objectness(targets, a_idx, g_y, g_x, max_value=objectness_score)
 
             # Update class
-            # if 5 + sel_class_ids[i]-3 >= 0:
-            #     targets[a_idx, 5 + sel_class_ids[i]-3, g_y, g_x] = 0.25
-            # if 5 + sel_class_ids[i]-2 >= 0:
-            #     targets[a_idx, 5 + sel_class_ids[i]-2, g_y, g_x] = 0.5
-            # if 5 + sel_class_ids[i]-1 >= 0:
-            #     targets[a_idx, 5 + sel_class_ids[i]-1, g_y, g_x] = 0.75
             targets[a_idx, 5 + sel_class_ids[i], g_y, g_x] = 1.0
-            # if sel_class_ids[i]+1 < num_classes:
-            #     targets[a_idx, 5 + sel_class_ids[i]+1, g_y, g_x] = 0.75
-            # if sel_class_ids[i]+2 < num_classes:
-            #     targets[a_idx, 5 + sel_class_ids[i]+2, g_y, g_x] = 0.5
-            # if sel_class_ids[i]+3 < num_classes:
-            #     targets[a_idx, 5 + sel_class_ids[i]+3, g_y, g_x] = 0.25
 
             targets_mask[a_idx, g_y, g_x] = True
-    return targets, targets_mask
-
-
-def build_feature_map_targets_backup(
-    annotations: torch.Tensor,
-    anchor_tensor: AnchorsTensor,
-    grid_size_h: int,
-    grid_size_w: int,
-    num_classes: int,
-    check_values: bool = False,
-    positive_sample_iou_thershold: float = 0.3,  # don't care if iou is low as long as I skip t_w and t_h if > 1
-) -> Tuple[torch.Tensor, torch.Tensor]:
-    anchors = anchor_tensor.anchors
-    num_anchors = anchors.shape[0]
-    assert num_anchors == 3, "Only 3 anchors are supported for each feature map type"
-
-    targets = torch.zeros(
-        (num_anchors, 5 + num_classes, grid_size_h, grid_size_w),
-        device=annotations.device,
-    )
-    targets_mask = torch.zeros(
-        (num_anchors, grid_size_h, grid_size_w),
-        dtype=torch.bool,
-        device=annotations.device,
-    )
-
-    for i, obj in enumerate(annotations):
-        bx, by, bw, bh, class_id = obj  # YOLOv2 naming convention | zero based class_id
-        """
-        NOTE:
-        I BELIVE without the following condition an experiment will not be well established because we try to predict big bboxes
-        with small anchors. This means the predictions should have very large values thus exploding the gradient possibly.
-        """
-        # box = torch.tensor([0, 0, bw, bh], device=annotations.device)
-        for anchor_i in range(num_anchors):
-            if (
-                anchors[anchor_i, 2] * (ANCHOR_GAIN**2) < bw
-                or anchors[anchor_i, 2] * (ANCHOR_GAIN**2) < bh
-            ):
-                # too big bbox for anchor
-                continue
-            # ious = custom_yolo_lib.process.bbox.utils.calculate_iou_tensors(box, anchors)
-            # anchor_i = torch.argmax(ious)
-            # if ious[anchor_i] < positive_sample_iou_thershold:
-            #     continue
-
-            grid_x = int(bx * grid_size_w)
-            grid_y = int(by * grid_size_h)
-            objectness_score = 1.0
-
-            # replace with better object
-            if targets[anchor_i, 4, grid_y, grid_x] < objectness_score:
-
-                # bbox
-                # x offset inside cell | example if x=0.5, grid_size=13, grid_x=6 then in grid cell x offset is 0.5*13-6=0.5
-                targets[anchor_i, 0, grid_y, grid_x] = bx * grid_size_w - grid_x
-                # y offset inside cell
-                targets[anchor_i, 1, grid_y, grid_x] = by * grid_size_h - grid_y
-                targets[anchor_i, 2, grid_y, grid_x] = bw
-                targets[anchor_i, 3, grid_y, grid_x] = bh
-                if check_values:
-                    assert (targets[anchor_i, 0, grid_y, grid_x] <= 1).all()
-                    assert (0 <= targets[anchor_i, 0, grid_y, grid_x]).all()
-                    assert (targets[anchor_i, 1, grid_y, grid_x] <= 1).all()
-                    assert (0 <= targets[anchor_i, 1, grid_y, grid_x]).all()
-                    assert 0 <= bw <= 1  # fails with bad anchor
-                    assert 0 <= bh <= 1  # fails with bad anchor
-
-                # objectness
-                targets[anchor_i, 4, grid_y, grid_x] = objectness_score
-                # _bump_objectness(
-                #     targets, anchor_i, grid_y, grid_x, max_value=objectness_score
-                # )
-
-                # class
-                targets[anchor_i, 5 + int(class_id), grid_y, grid_x] = (
-                    1.0  # class score
-                )
-
-                targets_mask[anchor_i, grid_y, grid_x] = True
     return targets, targets_mask
 
 

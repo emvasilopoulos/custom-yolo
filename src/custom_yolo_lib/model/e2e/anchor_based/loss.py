@@ -18,6 +18,7 @@ class YOLOLossPerFeatureMapV2(torch.nn.Module):
         feature_map_anchors: custom_yolo_lib.model.e2e.anchor_based.training_utils.AnchorsTensor,
         grid_size_h: int,
         grid_size_w: int,
+        is_ordinal_objectness: bool = False,
     ) -> None:
         super(YOLOLossPerFeatureMapV2, self).__init__()
         self.num_classes = num_classes
@@ -31,6 +32,7 @@ class YOLOLossPerFeatureMapV2(torch.nn.Module):
         self.grid_size_h = grid_size_h
         self.grid_size_w = grid_size_w
         self.losses_calculated = 0
+        self.is_ordinal_objectness = is_ordinal_objectness
 
     def set_box_loss(
         self, box_loss: custom_yolo_lib.training.losses.BoxLoss.IoUType
@@ -156,7 +158,6 @@ class YOLOLossPerFeatureMapV2(torch.nn.Module):
                 anchor_pred_bboxes_decoded, anchor_target_bboxes_decoded
             ).mean()
             # keep for later because after the second box_loss calculation it will be overwritten
-            iou = self.box_loss.iou.detach().clamp(0.0, 1.0)
 
             """ will this work as improvement? """
             # # part 2 of 2 - where there are no targets
@@ -169,7 +170,9 @@ class YOLOLossPerFeatureMapV2(torch.nn.Module):
             #     anchor_pred_no_bboxes, anchor_target_no_bboxes
             # ).mean()
             # Update objectness target scores
-            anchor_targets[:, :, :, 4][anchor_targets_mask] = iou
+            if not self.is_ordinal_objectness:
+                iou = self.box_loss.iou.detach().clamp(0.0, 1.0)
+                anchor_targets[:, :, :, 4][anchor_targets_mask] = iou
 
             # Class loss
             anchor_pred_class_scores = anchor_predictions[:, :, :, 5:][
@@ -226,6 +229,7 @@ class YOLOLossPerFeatureMapV2(torch.nn.Module):
             grid_size_w=self.grid_size_w,
             feature_map_anchors=self.feature_map_anchors,
             num_classes=self.num_classes,
+            is_ordinal_objectness=self.is_ordinal_objectness,
         )
 
         return self._calculate_loss(
@@ -246,6 +250,7 @@ class YOLOLossPerFeatureMapV2(torch.nn.Module):
             grid_size_w=self.grid_size_w,
             feature_map_anchors=self.feature_map_anchors,
             num_classes=self.num_classes,
+            is_ordinal_objectness=self.is_ordinal_objectness,
         )
 
         return (
@@ -265,6 +270,7 @@ def _get_targets_in_grid(
     grid_size_w: int,
     feature_map_anchors: custom_yolo_lib.model.e2e.anchor_based.training_utils.AnchorsTensor,
     num_classes: int,
+    is_ordinal_objectness: bool = False,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     targets_in_grid = []
     targets_masks = []
@@ -277,7 +283,7 @@ def _get_targets_in_grid(
                 grid_size_w=grid_size_w,
                 num_classes=num_classes,
                 check_values=False,
-                positive_sample_iou_thershold=0.3,
+                is_ordinal_objectness=is_ordinal_objectness,
             )
         )
         targets_in_grid.append(target_in_grid)
