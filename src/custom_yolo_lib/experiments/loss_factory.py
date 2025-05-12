@@ -5,7 +5,7 @@ import torch
 import custom_yolo_lib.model.e2e.anchor_based.bundled_anchor_based
 import custom_yolo_lib.model.e2e.anchor_based.training_utils
 import custom_yolo_lib.image_size
-import custom_yolo_lib.model.e2e.anchor_based.loss
+import custom_yolo_lib.model.e2e.anchor_based.losses.loss
 
 
 class LossType(enum.Enum):
@@ -38,21 +38,21 @@ def init_loss(
             device
         )
     )
-    loss_s = custom_yolo_lib.model.e2e.anchor_based.loss.YOLOLossPerFeatureMapV2(
+    loss_s = custom_yolo_lib.model.e2e.anchor_based.losses.loss.YOLOLossPerFeatureMapV2(
         num_classes=num_classes,
         feature_map_anchors=small_map_anchors,
         grid_size_h=predictions_s.shape[3],
         grid_size_w=predictions_s.shape[4],
         is_ordinal_objectness=is_ordinal_objectness,
     )
-    loss_m = custom_yolo_lib.model.e2e.anchor_based.loss.YOLOLossPerFeatureMapV2(
+    loss_m = custom_yolo_lib.model.e2e.anchor_based.losses.loss.YOLOLossPerFeatureMapV2(
         num_classes=num_classes,
         feature_map_anchors=medium_map_anchors,
         grid_size_h=predictions_m.shape[3],
         grid_size_w=predictions_m.shape[4],
         is_ordinal_objectness=is_ordinal_objectness,
     )
-    loss_l = custom_yolo_lib.model.e2e.anchor_based.loss.YOLOLossPerFeatureMapV2(
+    loss_l = custom_yolo_lib.model.e2e.anchor_based.losses.loss.YOLOLossPerFeatureMapV2(
         num_classes=num_classes,
         feature_map_anchors=large_map_anchors,
         grid_size_h=predictions_l.shape[3],

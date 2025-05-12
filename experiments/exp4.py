@@ -13,7 +13,7 @@ import custom_yolo_lib.experiments.schedulers_factory
 import custom_yolo_lib.experiments.utils
 import custom_yolo_lib.image_size
 import custom_yolo_lib.model.e2e.anchor_based.bundled_anchor_based
-import custom_yolo_lib.model.e2e.anchor_based.loss
+import custom_yolo_lib.model.e2e.anchor_based.losses.loss
 import custom_yolo_lib.training.lr_scheduler
 
 torch.manual_seed(42)
@@ -64,9 +64,9 @@ def train_one_epoch(
     training_loader: torch.utils.data.DataLoader,
     optimizer: torch.optim.Optimizer,
     scheduler: custom_yolo_lib.training.lr_scheduler.WarmupCosineScheduler,
-    loss_s: custom_yolo_lib.model.e2e.anchor_based.loss.YOLOLossPerFeatureMapV2,
-    loss_m: custom_yolo_lib.model.e2e.anchor_based.loss.YOLOLossPerFeatureMapV2,
-    loss_l: custom_yolo_lib.model.e2e.anchor_based.loss.YOLOLossPerFeatureMapV2,
+    loss_s: custom_yolo_lib.model.e2e.anchor_based.losses.loss.YOLOLossPerFeatureMapV2,
+    loss_m: custom_yolo_lib.model.e2e.anchor_based.losses.loss.YOLOLossPerFeatureMapV2,
+    loss_l: custom_yolo_lib.model.e2e.anchor_based.losses.loss.YOLOLossPerFeatureMapV2,
     epoch: int,
     training_step: int,
     experiment_path: pathlib.Path,
@@ -144,9 +144,9 @@ def train_one_epoch(
 def validate_one_epoch(
     model: custom_yolo_lib.model.e2e.anchor_based.bundled_anchor_based.YOLOModel,
     validation_loader: torch.utils.data.DataLoader,
-    loss_s: custom_yolo_lib.model.e2e.anchor_based.loss.YOLOLossPerFeatureMapV2,
-    loss_m: custom_yolo_lib.model.e2e.anchor_based.loss.YOLOLossPerFeatureMapV2,
-    loss_l: custom_yolo_lib.model.e2e.anchor_based.loss.YOLOLossPerFeatureMapV2,
+    loss_s: custom_yolo_lib.model.e2e.anchor_based.losses.loss.YOLOLossPerFeatureMapV2,
+    loss_m: custom_yolo_lib.model.e2e.anchor_based.losses.loss.YOLOLossPerFeatureMapV2,
+    loss_l: custom_yolo_lib.model.e2e.anchor_based.losses.loss.YOLOLossPerFeatureMapV2,
     epoch: int,
     validation_step: int,
     experiment_path: pathlib.Path,
@@ -213,9 +213,9 @@ def session_loop(
     validation_loader: torch.utils.data.DataLoader,
     optimizer: torch.optim.Optimizer,
     scheduler: custom_yolo_lib.training.lr_scheduler.StepLRScheduler,
-    loss_s: custom_yolo_lib.model.e2e.anchor_based.loss.YOLOLossPerFeatureMapV2,
-    loss_m: custom_yolo_lib.model.e2e.anchor_based.loss.YOLOLossPerFeatureMapV2,
-    loss_l: custom_yolo_lib.model.e2e.anchor_based.loss.YOLOLossPerFeatureMapV2,
+    loss_s: custom_yolo_lib.model.e2e.anchor_based.losses.loss.YOLOLossPerFeatureMapV2,
+    loss_m: custom_yolo_lib.model.e2e.anchor_based.losses.loss.YOLOLossPerFeatureMapV2,
+    loss_l: custom_yolo_lib.model.e2e.anchor_based.losses.loss.YOLOLossPerFeatureMapV2,
     experiment_path: pathlib.Path,
     device: torch.device = torch.device("cuda:0"),
 ):
