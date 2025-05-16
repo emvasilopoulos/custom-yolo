@@ -1,6 +1,5 @@
 from typing import List, Tuple
 import torch
-import torchvision
 
 from custom_yolo_lib.model.e2e.anchor_based.constants import ANCHOR_GAIN
 import custom_yolo_lib.model.e2e.anchor_based.training_utils
