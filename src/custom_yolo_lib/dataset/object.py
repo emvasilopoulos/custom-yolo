@@ -11,6 +11,6 @@ class Object:
     class_id: int
 
     def to_tensor(self) -> torch.Tensor:
-        return torch.tensor(
+        return torch.FloatTensor(
             [self.bbox.x, self.bbox.y, self.bbox.w, self.bbox.h, self.class_id]
         )
