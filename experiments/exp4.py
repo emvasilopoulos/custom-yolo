@@ -6,11 +6,11 @@ import tqdm
 import pandas as pd
 
 import custom_yolo_lib.experiments.dataloaders_factory
+import custom_yolo_lib.experiments.loss_factory
 import custom_yolo_lib.experiments.model_factory
 import custom_yolo_lib.experiments.optimizer_factory
 import custom_yolo_lib.experiments.schedulers_factory
 import custom_yolo_lib.experiments.utils
-import custom_yolo_lib.experiments.loss_factory
 import custom_yolo_lib.image_size
 import custom_yolo_lib.model.e2e.anchor_based.bundled_anchor_based
 import custom_yolo_lib.model.e2e.anchor_based.losses.loss
@@ -18,13 +18,17 @@ import custom_yolo_lib.training.lr_scheduler
 
 torch.manual_seed(42)
 
-MODEL_TYPE = custom_yolo_lib.experiments.model_factory.ModelType.YOLOFPN
-OPTIMIZER_TYPE = custom_yolo_lib.experiments.optimizer_factory.OptimizerType.VANILLA
-LOSS_TYPE = custom_yolo_lib.experiments.loss_factory.LossType.THREESCALE_YOLO
+MODEL_TYPE = custom_yolo_lib.experiments.model_factory.ModelType.YOLO
+OPTIMIZER_TYPE = (
+    custom_yolo_lib.experiments.optimizer_factory.OptimizerType.SPLIT_GROUPS_ADAMW
+)
+LOSS_TYPE = custom_yolo_lib.experiments.loss_factory.LossType.THREESCALE_YOLO_ORD
 DATASET_TYPE = custom_yolo_lib.experiments.dataloaders_factory.DatasetType.COCO_SAMA
-SCHEDULER_TYPE = custom_yolo_lib.experiments.schedulers_factory.SchedulerType.STEP
+SCHEDULER_TYPE = (
+    custom_yolo_lib.experiments.schedulers_factory.SchedulerType.WARMUP_COSINE
+)
 BASE_LR = 0.01 / 64
-EXPERIMENT_NAME = "exp3"
+EXPERIMENT_NAME = "exp4"
 WARMUP_EPOCHS = 3
 EPOCHS = 12
 NUM_CLASSES = 80
@@ -94,14 +98,14 @@ def train_one_epoch(
             losses_s, losses_m, losses_l
         )
         if torch.isnan(avg_bbox_loss):
-            print("avg_bbox_loss is NaN, skipping step")
-            continue
+            print("avg_bbox_loss is NaN, EXITING...")
+            exit(1)
         if torch.isnan(avg_objectness_loss):
-            print("avg_objectness_loss is NaN, skipping step")
-            continue
+            print("avg_objectness_loss is NaN, EXITING...")
+            exit(1)
         if torch.isnan(avg_class_loss):
-            print("avg_class_loss is NaN, skipping step")
-            continue
+            print("avg_class_loss is NaN, EXITING...")
+            exit(1)
         if loss == 0:
             print("Loss is zero, skipping step")
             continue
@@ -220,6 +224,10 @@ def session_loop(
     validation_step = 0
     min_mean_val_loss = float("inf")
 
+    print(f"INITIAL Learning Rates:")
+    for lr in scheduler.get_lr():
+        print(f"- {lr:.9f}")
+
     for epoch in range(EPOCHS):
 
         training_step = train_one_epoch(
@@ -235,7 +243,10 @@ def session_loop(
             experiment_path,
             device,
         )
-        print(f"CURRENT LEARNING RATES: {scheduler.get_lr()}")
+
+        print(f"Learning Rates after training epoch:")
+        for lr in scheduler.get_lr():
+            print(f"- {lr:.9f}")
 
         validation_step, mean_val_loss = validate_one_epoch(
             model,
@@ -280,6 +291,7 @@ def main(dataset_path: pathlib.Path, experiment_path: pathlib.Path):
         momentum=MOMENTUM,
         weight_decay=DECAY,
     )
+
     training_loader, validation_loader = (
         custom_yolo_lib.experiments.dataloaders_factory.init_dataloaders(
             DATASET_TYPE,
@@ -289,17 +301,22 @@ def main(dataset_path: pathlib.Path, experiment_path: pathlib.Path):
             batch_size=BATCH_SIZE,
         )
     )
+
     steps_per_epoch = len(training_loader)
 
-    scheduler = torch.optim.lr_scheduler.StepLR(
+    scheduler = custom_yolo_lib.experiments.schedulers_factory.init_scheduler(
+        SCHEDULER_TYPE,
         optimizer,
-        step_size=int(steps_per_epoch * 0.2),
-        gamma=0.9,
+        update_step_size=steps_per_epoch,
+        warmup_steps=steps_per_epoch * WARMUP_EPOCHS,
+        max_steps=steps_per_epoch * EPOCHS,
+        cycles=0.5,
+        min_factor=0.1,
+        last_step=-1,
     )
 
-    loss_type = custom_yolo_lib.experiments.loss_factory.LossType.THREESCALE_YOLO
     loss_s, loss_m, loss_l = custom_yolo_lib.experiments.loss_factory.init_loss(
-        loss_type,
+        LOSS_TYPE,
         model,
         device,
         expected_image_size=IMAGE_SIZE,

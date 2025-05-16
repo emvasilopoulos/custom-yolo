@@ -1,6 +1,7 @@
 import abc
 import collections
 import logging
+import math
 import random
 from typing import List
 
@@ -8,6 +9,9 @@ import numpy as np
 import torch
 
 import custom_yolo_lib.logging
+
+# TODO: make all scheduler implement warmup steps option
+# TODO #2: make all inherit from 'torch.optim.lr_scheduler.LRScheduler'
 
 
 class BaseLRScheduler:
@@ -26,7 +30,7 @@ class BaseLRScheduler:
         self.optimizer = optimizer
 
     @abc.abstractmethod
-    def update_loss(self, loss: torch.nn.Module):
+    def step(self, loss: torch.nn.Module = None):
         pass
 
 
@@ -39,6 +43,10 @@ class StepLRScheduler(BaseLRScheduler):
         logging_level: int = logging.WARNING,
     ):
         super().__init__(optimizer, logging_level)
+        if update_step_size <= 0:
+            raise ValueError(
+                f"Step size must be greater than 0, but got {update_step_size}"
+            )
         self.__step_size = update_step_size
         self.__current_step = 0
 
@@ -46,7 +54,7 @@ class StepLRScheduler(BaseLRScheduler):
             param_group["lr"] for param_group in self.optimizer.param_groups
         ]
 
-    def update_loss(self, loss: torch.nn.Module):
+    def step(self, loss: torch.nn.Module = None):
         self.__current_step += 1
         if self.__current_step % self.__step_size == 0:
             perc = (
@@ -94,7 +102,7 @@ class MyLRScheduler(BaseLRScheduler):
         m, b = np.polyfit(x, y, 1)
         return m, b
 
-    def update_loss(self, loss: torch.nn.Module):
+    def step(self, loss: torch.nn.Module = None):
         self.losses.append(loss.item())
         current_mean = torch.Tensor(self.losses).mean()
         self.loss_moving_average.append(current_mean)
@@ -129,6 +137,16 @@ class WarmupLRScheduler(BaseLRScheduler):
         logging_level: int = logging.WARNING,
     ):
         super().__init__(optimizer, logging_level)
+
+        if update_step_size <= 0:
+            raise ValueError(
+                f"Step size must be greater than 0, but got {update_step_size}"
+            )
+        if warmup_steps <= 0:
+            raise ValueError(
+                f"Warmup steps must be greater than 0, but got {warmup_steps}"
+            )
+
         self.warmup_steps = warmup_steps
         self.current_step = 0
         self.initial_lrs = [
@@ -136,7 +154,7 @@ class WarmupLRScheduler(BaseLRScheduler):
         ]
         self.upate_step_size = update_step_size
 
-    def update_loss(self, loss: torch.nn.Module):
+    def step(self, loss: torch.nn.Module):
         self.current_step += 1
         if self.current_step <= self.warmup_steps:
             for i, param_group in enumerate(self.optimizer.param_groups):
@@ -155,7 +173,6 @@ class WarmupLRScheduler(BaseLRScheduler):
     def get_lr(self):
         return [param_group["lr"] for param_group in self.optimizer.param_groups]
 
-import math
 
 class WarmupCosineScheduler(torch.optim.lr_scheduler.LRScheduler):
     """Cosine decay with linear warm-up.
@@ -183,7 +200,6 @@ class WarmupCosineScheduler(torch.optim.lr_scheduler.LRScheduler):
         optimizer: torch.optim.Optimizer,
         warmup_steps: int,
         max_steps: int,
-        *,
         cycles: float = 0.5,
         min_factor: float = 0.0,
         last_step: int = -1,
@@ -217,7 +233,9 @@ class WarmupCosineScheduler(torch.optim.lr_scheduler.LRScheduler):
             max(1, self.max_steps - self.warmup_steps)
         )
         # progress ∈ [0, 1]; cosine cycles spiral downwards
-        cosine_decay: float = 0.5 * (1.0 + math.cos(math.pi * self.cycles * 2.0 * progress))
+        cosine_decay: float = 0.5 * (
+            1.0 + math.cos(math.pi * self.cycles * 2.0 * progress)
+        )
         # Scale to [min_factor, 1]
         return self.min_factor + (1.0 - self.min_factor) * cosine_decay
 
@@ -225,7 +243,9 @@ class WarmupCosineScheduler(torch.optim.lr_scheduler.LRScheduler):
     # Required override from _LRScheduler
     # ------------------------------------------------------------------
     def get_lr(self) -> List[float]:  # noqa: D401  # (Returns a list, not a rate)
-        current_step: int = self.last_epoch  # PyTorch uses ``last_epoch`` for step index
+        current_step: int = (
+            self.last_epoch
+        )  # PyTorch uses ``last_epoch`` for step index
         if current_step < self.warmup_steps:
             factor: float = self._get_warmup_factor(current_step)
         else:

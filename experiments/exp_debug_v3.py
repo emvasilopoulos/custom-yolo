@@ -17,13 +17,13 @@ import custom_yolo_lib.dataset.coco.tasks.instances
 import custom_yolo_lib.dataset.coco.tasks.loader
 import custom_yolo_lib.image_size
 import custom_yolo_lib.model.e2e.anchor_based.bundled_anchor_based
-import custom_yolo_lib.model.e2e.anchor_based.losses.loss
+import custom_yolo_lib.model.e2e.anchor_based.losses.loss_v3
 import custom_yolo_lib.model.e2e.anchor_based.training_utils
 import custom_yolo_lib.training.utils
 
 
 BASE_LR = 0.01 / 64
-EXPERIMENT_NAME = "debug"
+EXPERIMENT_NAME = "debug_v3"
 WARMUP_EPOCHS = 3
 EPOCHS = 12
 NUM_CLASSES = 80
@@ -83,23 +83,29 @@ def init_losses(
             device
         )
     )
-    loss_s = custom_yolo_lib.model.e2e.anchor_based.losses.loss.YOLOLossPerFeatureMapV2(
-        num_classes=NUM_CLASSES,
-        feature_map_anchors=small_map_anchors,
-        grid_size_h=predictions_s.shape[3],
-        grid_size_w=predictions_s.shape[4],
+    loss_s = (
+        custom_yolo_lib.model.e2e.anchor_based.losses.loss_v3.YOLOLossPerFeatureMapV3(
+            num_classes=NUM_CLASSES,
+            feature_map_anchors=small_map_anchors,
+            grid_size_h=predictions_s.shape[3],
+            grid_size_w=predictions_s.shape[4],
+        )
     )
-    loss_m = custom_yolo_lib.model.e2e.anchor_based.losses.loss.YOLOLossPerFeatureMapV2(
-        num_classes=NUM_CLASSES,
-        feature_map_anchors=medium_map_anchors,
-        grid_size_h=predictions_m.shape[3],
-        grid_size_w=predictions_m.shape[4],
+    loss_m = (
+        custom_yolo_lib.model.e2e.anchor_based.losses.loss_v3.YOLOLossPerFeatureMapV3(
+            num_classes=NUM_CLASSES,
+            feature_map_anchors=medium_map_anchors,
+            grid_size_h=predictions_m.shape[3],
+            grid_size_w=predictions_m.shape[4],
+        )
     )
-    loss_l = custom_yolo_lib.model.e2e.anchor_based.losses.loss.YOLOLossPerFeatureMapV2(
-        num_classes=NUM_CLASSES,
-        feature_map_anchors=large_map_anchors,
-        grid_size_h=predictions_l.shape[3],
-        grid_size_w=predictions_l.shape[4],
+    loss_l = (
+        custom_yolo_lib.model.e2e.anchor_based.losses.loss_v3.YOLOLossPerFeatureMapV3(
+            num_classes=NUM_CLASSES,
+            feature_map_anchors=large_map_anchors,
+            grid_size_h=predictions_l.shape[3],
+            grid_size_w=predictions_l.shape[4],
+        )
     )
     return loss_s, loss_m, loss_l
 
@@ -250,9 +256,9 @@ def draw_targets_from_targets_in_grid(
 def infe_one_batch(
     model: custom_yolo_lib.model.e2e.anchor_based.bundled_anchor_based.YOLOModel,
     training_loader: torch.utils.data.DataLoader,
-    loss_s: custom_yolo_lib.model.e2e.anchor_based.losses.loss.YOLOLossPerFeatureMapV2,
-    loss_m: custom_yolo_lib.model.e2e.anchor_based.losses.loss.YOLOLossPerFeatureMapV2,
-    loss_l: custom_yolo_lib.model.e2e.anchor_based.losses.loss.YOLOLossPerFeatureMapV2,
+    loss_s: custom_yolo_lib.model.e2e.anchor_based.losses.loss_v3.YOLOLossPerFeatureMapV3,
+    loss_m: custom_yolo_lib.model.e2e.anchor_based.losses.loss_v3.YOLOLossPerFeatureMapV3,
+    loss_l: custom_yolo_lib.model.e2e.anchor_based.losses.loss_v3.YOLOLossPerFeatureMapV3,
     experiment_path: pathlib.Path,
     device: torch.device = torch.device("cuda:0"),
 ):
@@ -356,6 +362,17 @@ def infe_one_batch(
             i,
             "large",
         )
+
+        img5 = image.copy()
+        # target_mask_m: torch.Tensor  # boolean tensor
+        # np_mask = target_mask_other.permute(0, 1, 2)[1].cpu().numpy() * 255
+        np_mask = target_in_grid_l[0, :, :, 4].cpu().numpy() * 255
+        np_mask = np_mask.astype("uint8")
+        np_mask = cv2.cvtColor(np_mask, cv2.COLOR_GRAY2BGR)
+        np_mask = cv2.resize(np_mask, (IMAGE_SIZE.width, IMAGE_SIZE.height))
+        np_mask = cv2.addWeighted(img5, 0.75, np_mask, 0.5, 0)
+        cv2.imwrite(str(sample_dir / f"sample_{i}_mask.jpg"), np_mask)
+
         break
         print("- Done with sample", i)
 
@@ -363,9 +380,9 @@ def infe_one_batch(
 def session_loop(
     model: custom_yolo_lib.model.e2e.anchor_based.bundled_anchor_based.YOLOModel,
     training_loader: torch.utils.data.DataLoader,
-    loss_s: custom_yolo_lib.model.e2e.anchor_based.losses.loss.YOLOLossPerFeatureMapV2,
-    loss_m: custom_yolo_lib.model.e2e.anchor_based.losses.loss.YOLOLossPerFeatureMapV2,
-    loss_l: custom_yolo_lib.model.e2e.anchor_based.losses.loss.YOLOLossPerFeatureMapV2,
+    loss_s: custom_yolo_lib.model.e2e.anchor_based.losses.loss_v3.YOLOLossPerFeatureMapV3,
+    loss_m: custom_yolo_lib.model.e2e.anchor_based.losses.loss_v3.YOLOLossPerFeatureMapV3,
+    loss_l: custom_yolo_lib.model.e2e.anchor_based.losses.loss_v3.YOLOLossPerFeatureMapV3,
     experiment_path: pathlib.Path,
     device: torch.device = torch.device("cuda:0"),
 ):

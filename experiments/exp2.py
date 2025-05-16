@@ -10,19 +10,29 @@ import torch
 import tqdm
 import pandas as pd
 
-import custom_yolo_lib.dataset.coco.tasks.instances
-import custom_yolo_lib.dataset.coco.tasks.loader
-import custom_yolo_lib.experiments_utils
+import custom_yolo_lib.experiments.dataloaders_factory
+import custom_yolo_lib.experiments.optimizer_factory
+import custom_yolo_lib.experiments.schedulers_factory
+import custom_yolo_lib.experiments.loss_factory
+import custom_yolo_lib.experiments.utils
 import custom_yolo_lib.image_size
 import custom_yolo_lib.model.e2e.anchor_based.bundled_anchor_based
-import custom_yolo_lib.model.e2e.anchor_based.loss
-import custom_yolo_lib.model.e2e.anchor_based.training_utils
+import custom_yolo_lib.model.e2e.anchor_based.losses.loss
 import custom_yolo_lib.training.losses
-import custom_yolo_lib.training.utils
 import custom_yolo_lib.training.lr_scheduler
+import custom_yolo_lib.experiments.model_factory
 
 torch.manual_seed(42)
 
+MODEL_TYPE = custom_yolo_lib.experiments.model_factory.ModelType.YOLO
+OPTIMIZER_TYPE = (
+    custom_yolo_lib.experiments.optimizer_factory.OptimizerType.SPLIT_GROUPS_ADAMW
+)
+LOSS_TYPE = custom_yolo_lib.experiments.loss_factory.LossType.THREESCALE_YOLO
+DATASET_TYPE = custom_yolo_lib.experiments.dataloaders_factory.DatasetType.COCO_SAMA
+SCHEDULER_TYPE = (
+    custom_yolo_lib.experiments.schedulers_factory.SchedulerType.WARMUP_COSINE
+)
 BASE_LR = 0.01 / 64
 EXPERIMENT_NAME = "exp2"
 WARMUP_EPOCHS = 3
@@ -39,102 +49,6 @@ BOX_LOSS_GAIN = 1.0
 OBJECTNESS_LOSS_SMALL_MAP_GAIN = 4.0  # bigger grid 80x80 results in smaller loss if BCE
 OBJECTNESS_LOSS_MEDIUM_MAP_GAIN = 1.0
 OBJECTNESS_LOSS_LARGE_MAP_GAIN = 0.4
-# torch.set_anomaly_enabled(True)
-
-
-def init_model(
-    device: torch.device,
-) -> custom_yolo_lib.model.e2e.anchor_based.bundled_anchor_based.YOLOModel_FAILURE:
-    model = (
-        custom_yolo_lib.model.e2e.anchor_based.bundled_anchor_based.YOLOModel_FAILURE(
-            num_classes=NUM_CLASSES, training=True
-        )
-    )
-    model.to(device)
-    model.load_state_dict(torch.load("exp2/exp2_2/model_best.pth"))
-    return model
-
-
-def init_optimizer(
-    model: custom_yolo_lib.model.e2e.anchor_based.bundled_anchor_based.YOLOModel_FAILURE,
-) -> torch.optim.Optimizer:
-    parameters_grouped = custom_yolo_lib.training.utils.get_params_grouped(model)
-    optimizer = torch.optim.AdamW(
-        parameters_grouped.with_weight_decay,
-        lr=LR,
-        betas=(MOMENTUM, 0.999),
-        weight_decay=DECAY,
-    )
-    optimizer.add_param_group(
-        {"params": parameters_grouped.bias, "weight_decay": DECAY}
-    )
-    optimizer.add_param_group(
-        {"params": parameters_grouped.no_weight_decay, "weight_decay": 0.0}
-    )
-    return optimizer
-
-
-def init_losses(
-    model: custom_yolo_lib.model.e2e.anchor_based.bundled_anchor_based.YOLOModel_FAILURE,
-    device: torch.device,
-):
-    predictions_s, predictions_m, predictions_l = model.train_forward2(
-        torch.zeros((1, 3, IMAGE_SIZE.height, IMAGE_SIZE.width)).to(device)
-    )
-
-    small_map_anchors, medium_map_anchors, large_map_anchors = (
-        custom_yolo_lib.model.e2e.anchor_based.training_utils.get_anchors_as_bbox_tensors(
-            device
-        )
-    )
-    loss_s = custom_yolo_lib.model.e2e.anchor_based.loss.YOLOLossPerFeatureMapV2(
-        num_classes=NUM_CLASSES,
-        feature_map_anchors=small_map_anchors,
-        grid_size_h=predictions_s.shape[3],
-        grid_size_w=predictions_s.shape[4],
-    )
-    loss_m = custom_yolo_lib.model.e2e.anchor_based.loss.YOLOLossPerFeatureMapV2(
-        num_classes=NUM_CLASSES,
-        feature_map_anchors=medium_map_anchors,
-        grid_size_h=predictions_m.shape[3],
-        grid_size_w=predictions_m.shape[4],
-    )
-    loss_l = custom_yolo_lib.model.e2e.anchor_based.loss.YOLOLossPerFeatureMapV2(
-        num_classes=NUM_CLASSES,
-        feature_map_anchors=large_map_anchors,
-        grid_size_h=predictions_l.shape[3],
-        grid_size_w=predictions_l.shape[4],
-    )
-    return loss_s, loss_m, loss_l
-
-
-def init_dataloaders(dataset_path: pathlib.Path):
-    classes = [i for i in range(NUM_CLASSES)]
-    train_dataset = custom_yolo_lib.dataset.coco.tasks.instances.COCOInstances2017(
-        dataset_path,
-        "train",
-        expected_image_size=IMAGE_SIZE,
-        classes=classes,
-        is_sama=True,
-    )
-    training_loader = custom_yolo_lib.dataset.coco.tasks.loader.COCODataLoader(
-        train_dataset,
-        batch_size=BATCH_SIZE,
-        shuffle=True,
-    )
-    val_dataset = custom_yolo_lib.dataset.coco.tasks.instances.COCOInstances2017(
-        dataset_path,
-        "val",
-        expected_image_size=IMAGE_SIZE,
-        classes=classes,
-        is_sama=True,
-    )
-    validation_loader = custom_yolo_lib.dataset.coco.tasks.loader.COCODataLoader(
-        val_dataset,
-        batch_size=BATCH_SIZE,
-        shuffle=False,
-    )
-    return training_loader, validation_loader
 
 
 def calculate_loss(
@@ -156,9 +70,9 @@ def train_one_epoch(
     training_loader: torch.utils.data.DataLoader,
     optimizer: torch.optim.Optimizer,
     scheduler: custom_yolo_lib.training.lr_scheduler.WarmupCosineScheduler,
-    loss_s: custom_yolo_lib.model.e2e.anchor_based.loss.YOLOLossPerFeatureMapV2,
-    loss_m: custom_yolo_lib.model.e2e.anchor_based.loss.YOLOLossPerFeatureMapV2,
-    loss_l: custom_yolo_lib.model.e2e.anchor_based.loss.YOLOLossPerFeatureMapV2,
+    loss_s: custom_yolo_lib.model.e2e.anchor_based.losses.loss.YOLOLossPerFeatureMapV2,
+    loss_m: custom_yolo_lib.model.e2e.anchor_based.losses.loss.YOLOLossPerFeatureMapV2,
+    loss_l: custom_yolo_lib.model.e2e.anchor_based.losses.loss.YOLOLossPerFeatureMapV2,
     epoch: int,
     training_step: int,
     experiment_path: pathlib.Path,
@@ -236,9 +150,9 @@ def train_one_epoch(
 def validate_one_epoch(
     model: custom_yolo_lib.model.e2e.anchor_based.bundled_anchor_based.YOLOModel_FAILURE,
     validation_loader: torch.utils.data.DataLoader,
-    loss_s: custom_yolo_lib.model.e2e.anchor_based.loss.YOLOLossPerFeatureMapV2,
-    loss_m: custom_yolo_lib.model.e2e.anchor_based.loss.YOLOLossPerFeatureMapV2,
-    loss_l: custom_yolo_lib.model.e2e.anchor_based.loss.YOLOLossPerFeatureMapV2,
+    loss_s: custom_yolo_lib.model.e2e.anchor_based.losses.loss.YOLOLossPerFeatureMapV2,
+    loss_m: custom_yolo_lib.model.e2e.anchor_based.losses.loss.YOLOLossPerFeatureMapV2,
+    loss_l: custom_yolo_lib.model.e2e.anchor_based.losses.loss.YOLOLossPerFeatureMapV2,
     epoch: int,
     validation_step: int,
     experiment_path: pathlib.Path,
@@ -305,9 +219,9 @@ def session_loop(
     validation_loader: torch.utils.data.DataLoader,
     optimizer: torch.optim.Optimizer,
     scheduler: custom_yolo_lib.training.lr_scheduler.StepLRScheduler,
-    loss_s: custom_yolo_lib.model.e2e.anchor_based.loss.YOLOLossPerFeatureMapV2,
-    loss_m: custom_yolo_lib.model.e2e.anchor_based.loss.YOLOLossPerFeatureMapV2,
-    loss_l: custom_yolo_lib.model.e2e.anchor_based.loss.YOLOLossPerFeatureMapV2,
+    loss_s: custom_yolo_lib.model.e2e.anchor_based.losses.loss.YOLOLossPerFeatureMapV2,
+    loss_m: custom_yolo_lib.model.e2e.anchor_based.losses.loss.YOLOLossPerFeatureMapV2,
+    loss_l: custom_yolo_lib.model.e2e.anchor_based.losses.loss.YOLOLossPerFeatureMapV2,
     experiment_path: pathlib.Path,
     device: torch.device = torch.device("cuda:0"),
 ):
@@ -372,7 +286,7 @@ def session_loop(
 
 
 def main(dataset_path: pathlib.Path, experiment_path: pathlib.Path):
-    experiment_path = custom_yolo_lib.experiments_utils.make_experiment_dir(
+    experiment_path = custom_yolo_lib.experiments.utils.make_experiment_dir(
         EXPERIMENT_NAME, experiment_path
     )
 
@@ -380,18 +294,44 @@ def main(dataset_path: pathlib.Path, experiment_path: pathlib.Path):
         raise RuntimeError("CUDA is not available. Why bother bro?.")
     device = torch.device("cuda:0")
 
-    model = init_model(device)
-    optimizer = init_optimizer(model)
-    training_loader, validation_loader = init_dataloaders(dataset_path)
+    model = custom_yolo_lib.experiments.model_factory.init_model(
+        model_type=MODEL_TYPE, device=device, num_classes=NUM_CLASSES
+    )
+
+    optimizer = custom_yolo_lib.experiments.optimizer_factory.init_optimizer(
+        OPTIMIZER_TYPE,
+        model,
+        initial_lr=LR,
+        momentum=MOMENTUM,
+        weight_decay=DECAY,
+    )
+    training_loader, validation_loader = (
+        custom_yolo_lib.experiments.dataloaders_factory.init_dataloaders(
+            DATASET_TYPE,
+            dataset_path,
+            num_classes=NUM_CLASSES,
+            image_size=IMAGE_SIZE,
+            batch_size=BATCH_SIZE,
+        )
+    )
     steps_per_epoch = len(training_loader)
-    scheduler = custom_yolo_lib.training.lr_scheduler.WarmupCosineScheduler(
+
+    scheduler = custom_yolo_lib.experiments.schedulers_factory.init_scheduler(
+        SCHEDULER_TYPE,
         optimizer,
         warmup_steps=steps_per_epoch * WARMUP_EPOCHS,
         max_steps=steps_per_epoch * EPOCHS,
     )
 
     # loss_s, loss_m, loss_l = init_losses(device)
-    loss_s, loss_m, loss_l = init_losses(model, device)
+    loss_type = custom_yolo_lib.experiments.loss_factory.LossType.THREESCALE_YOLO
+    loss_s, loss_m, loss_l = custom_yolo_lib.experiments.loss_factory.init_loss(
+        loss_type,
+        model,
+        device,
+        expected_image_size=IMAGE_SIZE,
+        num_classes=NUM_CLASSES,
+    )
     loss_s.set_box_loss(custom_yolo_lib.training.losses.BoxLoss.IoUType.IoU)
     loss_m.set_box_loss(custom_yolo_lib.training.losses.BoxLoss.IoUType.IoU)
     loss_l.set_box_loss(custom_yolo_lib.training.losses.BoxLoss.IoUType.IoU)
