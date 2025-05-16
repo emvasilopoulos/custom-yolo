@@ -6,38 +6,26 @@ import custom_yolo_lib.model.e2e.anchor_based.bundled_anchor_based
 import custom_yolo_lib.model.e2e.anchor_based.training_utils
 import custom_yolo_lib.image_size
 import custom_yolo_lib.model.e2e.anchor_based.losses.loss
+import custom_yolo_lib.model.e2e.anchor_based.losses.loss_v3
 
 
 class LossType(enum.Enum):
     THREESCALE_YOLO = enum.auto()
     THREESCALE_YOLO_ORD = enum.auto()
+    THREESCALE_YOLO_ORD_v3 = enum.auto()
 
 
-def init_loss(
-    loss_type: LossType,
-    model: custom_yolo_lib.model.e2e.anchor_based.bundled_anchor_based.YOLOModel,
-    device: torch.device,
-    expected_image_size: custom_yolo_lib.image_size.ImageSize,
+def _init_v2(
+    predictions_s: torch.Tensor,
+    predictions_m: torch.Tensor,
+    predictions_l: torch.Tensor,
     num_classes: int,
-) -> torch.nn.Module:
-    if loss_type == LossType.THREESCALE_YOLO:
-        is_ordinal_objectness = False
-    elif loss_type == LossType.THREESCALE_YOLO_ORD:
-        is_ordinal_objectness = True
-    else:
-        raise ValueError(f"Unsupported loss type: {loss_type}")
+    is_ordinal_objectness: bool,
+    small_map_anchors: torch.Tensor,
+    medium_map_anchors: torch.Tensor,
+    large_map_anchors: torch.Tensor,
+):
 
-    predictions_s, predictions_m, predictions_l = model.train_forward2(
-        torch.zeros((1, 3, expected_image_size.height, expected_image_size.width)).to(
-            device
-        )
-    )
-
-    small_map_anchors, medium_map_anchors, large_map_anchors = (
-        custom_yolo_lib.model.e2e.anchor_based.training_utils.get_anchors_as_bbox_tensors(
-            device
-        )
-    )
     loss_s = custom_yolo_lib.model.e2e.anchor_based.losses.loss.YOLOLossPerFeatureMapV2(
         num_classes=num_classes,
         feature_map_anchors=small_map_anchors,
@@ -59,4 +47,97 @@ def init_loss(
         grid_size_w=predictions_l.shape[4],
         is_ordinal_objectness=is_ordinal_objectness,
     )
+    return loss_s, loss_m, loss_l
+
+
+def _init_v3(
+    predictions_s: torch.Tensor,
+    predictions_m: torch.Tensor,
+    predictions_l: torch.Tensor,
+    num_classes: int,
+    small_map_anchors: torch.Tensor,
+    medium_map_anchors: torch.Tensor,
+    large_map_anchors: torch.Tensor,
+):
+
+    loss_s = (
+        custom_yolo_lib.model.e2e.anchor_based.losses.loss_v3.YOLOLossPerFeatureMapV3(
+            num_classes=num_classes,
+            feature_map_anchors=small_map_anchors,
+            grid_size_h=predictions_s.shape[3],
+            grid_size_w=predictions_s.shape[4],
+        )
+    )
+    loss_m = (
+        custom_yolo_lib.model.e2e.anchor_based.losses.loss_v3.YOLOLossPerFeatureMapV3(
+            num_classes=num_classes,
+            feature_map_anchors=medium_map_anchors,
+            grid_size_h=predictions_m.shape[3],
+            grid_size_w=predictions_m.shape[4],
+        )
+    )
+    loss_l = (
+        custom_yolo_lib.model.e2e.anchor_based.losses.loss_v3.YOLOLossPerFeatureMapV3(
+            num_classes=num_classes,
+            feature_map_anchors=large_map_anchors,
+            grid_size_h=predictions_l.shape[3],
+            grid_size_w=predictions_l.shape[4],
+        )
+    )
+    return loss_s, loss_m, loss_l
+
+
+def init_loss(
+    loss_type: LossType,
+    model: custom_yolo_lib.model.e2e.anchor_based.bundled_anchor_based.YOLOModel,
+    device: torch.device,
+    expected_image_size: custom_yolo_lib.image_size.ImageSize,
+    num_classes: int,
+) -> torch.nn.Module:
+    predictions_s, predictions_m, predictions_l = model.train_forward2(
+        torch.zeros((1, 3, expected_image_size.height, expected_image_size.width)).to(
+            device
+        )
+    )
+
+    small_map_anchors, medium_map_anchors, large_map_anchors = (
+        custom_yolo_lib.model.e2e.anchor_based.training_utils.get_anchors_as_bbox_tensors(
+            device
+        )
+    )
+    if loss_type == LossType.THREESCALE_YOLO:
+        loss_s, loss_m, loss_l = _init_v2(
+            predictions_s,
+            predictions_m,
+            predictions_l,
+            num_classes,
+            False,
+            small_map_anchors,
+            medium_map_anchors,
+            large_map_anchors,
+        )
+    elif loss_type == LossType.THREESCALE_YOLO_ORD:
+        loss_s, loss_m, loss_l = _init_v2(
+            predictions_s,
+            predictions_m,
+            predictions_l,
+            num_classes,
+            True,
+            small_map_anchors,
+            medium_map_anchors,
+            large_map_anchors,
+        )
+    elif loss_type == LossType.THREESCALE_YOLO_ORD_v3:
+        loss_s, loss_m, loss_l = _init_v3(
+            predictions_s,
+            predictions_m,
+            predictions_l,
+            num_classes,
+            small_map_anchors,
+            medium_map_anchors,
+            large_map_anchors,
+        )
+    else:
+        raise ValueError(f"Unsupported loss type: {loss_type}")
+
     return loss_s, loss_m, loss_l
