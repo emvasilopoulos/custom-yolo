@@ -1,49 +1,92 @@
 import pathlib
-import argparse
+from typing import Union
 
+import pandas as pd
 import torch
 import tqdm
-import pandas as pd
 
-import custom_yolo_lib.experiments.dataloaders_factory
+import custom_yolo_lib.model.e2e.anchor_based.bundled_anchor_based
+import custom_yolo_lib.model.e2e.anchor_based.losses.loss as custom_loss
+import custom_yolo_lib.model.e2e.anchor_based.losses.loss_v3 as custom_loss_v3
+import custom_yolo_lib.training.lr_scheduler
+import custom_yolo_lib.config.hyperparameters
 import custom_yolo_lib.experiments.loss_factory
+import custom_yolo_lib.experiments.dataloaders_factory
 import custom_yolo_lib.experiments.model_factory
 import custom_yolo_lib.experiments.optimizer_factory
 import custom_yolo_lib.experiments.schedulers_factory
 import custom_yolo_lib.experiments.utils
-import custom_yolo_lib.image_size
-import custom_yolo_lib.model.e2e.anchor_based.bundled_anchor_based
-import custom_yolo_lib.model.e2e.anchor_based.losses.loss_v3
-import custom_yolo_lib.training.lr_scheduler
-import custom_yolo_lib.config.hyperparameters
 
-torch.manual_seed(42)
 
-MODEL_TYPE = custom_yolo_lib.experiments.model_factory.ModelType.YOLO
-OPTIMIZER_TYPE = (
-    custom_yolo_lib.experiments.optimizer_factory.OptimizerType.SPLIT_GROUPS_ADAMW
-)
-LOSS_TYPE = custom_yolo_lib.experiments.loss_factory.LossType.THREESCALE_YOLO_ORD_v3
-DATASET_TYPE = custom_yolo_lib.experiments.dataloaders_factory.DatasetType.COCO_SAMA
-SCHEDULER_TYPE = (
-    custom_yolo_lib.experiments.schedulers_factory.SchedulerType.WARMUP_COSINE
-)
-BASE_LR = 0.01 / 64
-EXPERIMENT_NAME = "exp5"
-WARMUP_EPOCHS = 3
-EPOCHS = 12
-NUM_CLASSES = 80
-BATCH_SIZE = 16
-LR = BASE_LR * BATCH_SIZE
-MOMENTUM = 0.9
-DECAY = 5e-4
-IMAGE_SIZE = custom_yolo_lib.image_size.ImageSize(640, 640)
-CLASS_LOSS_GAIN = 0.3
-OBJECTNESS_LOSS_GAIN = 0.7
-BOX_LOSS_GAIN = 0.05
-OBJECTNESS_LOSS_SMALL_MAP_GAIN = 4.0  # bigger grid 80x80 results in smaller loss if BCE
-OBJECTNESS_LOSS_MEDIUM_MAP_GAIN = 1.0
-OBJECTNESS_LOSS_LARGE_MAP_GAIN = 0.4
+def main(
+    dataset_path: pathlib.Path,
+    experiment_path: pathlib.Path,
+    hyperparameters: custom_yolo_lib.config.hyperparameters.ThreeAnchorsHyperparameters,
+):
+
+    experiment_path = custom_yolo_lib.experiments.utils.make_experiment_dir(
+        hyperparameters.experiment_name, experiment_path
+    )
+
+    if not torch.cuda.is_available():
+        raise RuntimeError("CUDA is not available. Why bother bro?.")
+    device = torch.device("cuda:0")
+
+    model = custom_yolo_lib.experiments.model_factory.init_model(
+        model_type=hyperparameters.model_type,
+        device=device,
+        num_classes=hyperparameters.dataset_num_classes,
+    )
+
+    optimizer = custom_yolo_lib.experiments.optimizer_factory.init_optimizer(
+        hyperparameters.optimizer_type,
+        model,
+        initial_lr=hyperparameters.learning_rate,
+        momentum=hyperparameters.momentum,
+        weight_decay=hyperparameters.weight_decay,
+    )
+    training_loader, validation_loader = (
+        custom_yolo_lib.experiments.dataloaders_factory.init_dataloaders(
+            hyperparameters.dataset_type,
+            dataset_path,
+            num_classes=hyperparameters.dataset_num_classes,
+            image_size=hyperparameters.image_size,
+            batch_size=hyperparameters.batch_size,
+        )
+    )
+    steps_per_epoch = len(training_loader)
+
+    scheduler = custom_yolo_lib.experiments.schedulers_factory.init_scheduler(
+        hyperparameters.scheduler_type,
+        optimizer,
+        update_step_size=steps_per_epoch,
+        warmup_steps=steps_per_epoch * hyperparameters.warmup_epochs,
+        max_steps=steps_per_epoch * hyperparameters.epochs,
+        cycles=0.5,  # TODO: add in hyperparameters config
+        min_factor=0.1,  # TODO: add in hyperparameters config
+        last_step=-1,  # TODO: learn what this is
+    )
+    loss_s, loss_m, loss_l = custom_yolo_lib.experiments.loss_factory.init_loss(
+        hyperparameters.loss_type,
+        model,
+        device,
+        expected_image_size=hyperparameters.image_size,
+        num_classes=hyperparameters.dataset_num_classes,
+    )
+
+    session_loop(
+        model,
+        training_loader,
+        validation_loader,
+        optimizer,
+        scheduler,
+        loss_s,
+        loss_m,
+        loss_l,
+        experiment_path,
+        hyperparameters,
+        device,
+    )
 
 
 def train_one_epoch(
@@ -51,9 +94,15 @@ def train_one_epoch(
     training_loader: torch.utils.data.DataLoader,
     optimizer: torch.optim.Optimizer,
     scheduler: custom_yolo_lib.training.lr_scheduler.WarmupCosineScheduler,
-    loss_s: custom_yolo_lib.model.e2e.anchor_based.losses.loss_v3.YOLOLossPerFeatureMapV3,
-    loss_m: custom_yolo_lib.model.e2e.anchor_based.losses.loss_v3.YOLOLossPerFeatureMapV3,
-    loss_l: custom_yolo_lib.model.e2e.anchor_based.losses.loss_v3.YOLOLossPerFeatureMapV3,
+    loss_s: Union[
+        custom_loss.YOLOLossPerFeatureMapV2, custom_loss_v3.YOLOLossPerFeatureMapV3
+    ],
+    loss_m: Union[
+        custom_loss.YOLOLossPerFeatureMapV2, custom_loss_v3.YOLOLossPerFeatureMapV3
+    ],
+    loss_l: Union[
+        custom_loss.YOLOLossPerFeatureMapV2, custom_loss_v3.YOLOLossPerFeatureMapV3
+    ],
     epoch: int,
     training_step: int,
     experiment_path: pathlib.Path,
@@ -71,7 +120,7 @@ def train_one_epoch(
     }
     tqdm_obj = tqdm.tqdm(training_loader)
     model.train()
-    print(f"Training epoch {epoch + 1}/{EPOCHS} | Losses:")
+    print(f"Training epoch {epoch + 1}/{hyperparameters.epochs} | Losses:")
     for i, coco_batch in enumerate(tqdm_obj):
 
         images = coco_batch.images_batch.to(device)
@@ -143,9 +192,15 @@ def train_one_epoch(
 def validate_one_epoch(
     model: custom_yolo_lib.model.e2e.anchor_based.bundled_anchor_based.YOLOModel,
     validation_loader: torch.utils.data.DataLoader,
-    loss_s: custom_yolo_lib.model.e2e.anchor_based.losses.loss_v3.YOLOLossPerFeatureMapV3,
-    loss_m: custom_yolo_lib.model.e2e.anchor_based.losses.loss_v3.YOLOLossPerFeatureMapV3,
-    loss_l: custom_yolo_lib.model.e2e.anchor_based.losses.loss_v3.YOLOLossPerFeatureMapV3,
+    loss_s: Union[
+        custom_loss.YOLOLossPerFeatureMapV2, custom_loss_v3.YOLOLossPerFeatureMapV3
+    ],
+    loss_m: Union[
+        custom_loss.YOLOLossPerFeatureMapV2, custom_loss_v3.YOLOLossPerFeatureMapV3
+    ],
+    loss_l: Union[
+        custom_loss.YOLOLossPerFeatureMapV2, custom_loss_v3.YOLOLossPerFeatureMapV3
+    ],
     epoch: int,
     validation_step: int,
     experiment_path: pathlib.Path,
@@ -163,7 +218,7 @@ def validate_one_epoch(
     tqdm_obj = tqdm.tqdm(validation_loader)
     model.eval()
     model.training = True
-    print(f"Validation epoch {epoch + 1}/{EPOCHS} | Losses:")
+    print(f"Validation epoch {epoch + 1}/{hyperparameters.epochs} | Losses:")
     with torch.no_grad():
         for i, coco_batch in enumerate(tqdm_obj):
             """
@@ -224,9 +279,15 @@ def session_loop(
     validation_loader: torch.utils.data.DataLoader,
     optimizer: torch.optim.Optimizer,
     scheduler: custom_yolo_lib.training.lr_scheduler.StepLRScheduler,
-    loss_s: custom_yolo_lib.model.e2e.anchor_based.losses.loss_v3.YOLOLossPerFeatureMapV3,
-    loss_m: custom_yolo_lib.model.e2e.anchor_based.losses.loss_v3.YOLOLossPerFeatureMapV3,
-    loss_l: custom_yolo_lib.model.e2e.anchor_based.losses.loss_v3.YOLOLossPerFeatureMapV3,
+    loss_s: Union[
+        custom_loss.YOLOLossPerFeatureMapV2, custom_loss_v3.YOLOLossPerFeatureMapV3
+    ],
+    loss_m: Union[
+        custom_loss.YOLOLossPerFeatureMapV2, custom_loss_v3.YOLOLossPerFeatureMapV3
+    ],
+    loss_l: Union[
+        custom_loss.YOLOLossPerFeatureMapV2, custom_loss_v3.YOLOLossPerFeatureMapV3
+    ],
     experiment_path: pathlib.Path,
     hyperparameters: custom_yolo_lib.config.hyperparameters.ThreeAnchorsHyperparameters,
     device: torch.device = torch.device("cuda:0"),
@@ -236,11 +297,7 @@ def session_loop(
     validation_step = 0
     min_mean_val_loss = float("inf")
 
-    print(f"INITIAL Learning Rates:")
-    for lr in scheduler.get_lr():
-        print(f"- {lr:.9f}")
-
-    for epoch in range(EPOCHS):
+    for epoch in range(hyperparameters.epochs):
 
         training_step = train_one_epoch(
             model,
@@ -256,10 +313,7 @@ def session_loop(
             hyperparameters,
             device,
         )
-
-        print(f"Learning Rates after training epoch:")
-        for lr in scheduler.get_lr():
-            print(f"- {lr:.9f}")
+        print(f"CURRENT LEARNING RATES: {scheduler.get_lr()}")
 
         validation_step, mean_val_loss = validate_one_epoch(
             model,
@@ -283,122 +337,3 @@ def session_loop(
             torch.save(model_state, model_path.as_posix())
         model_path = experiment_path / f"model_last.pth"
         torch.save(model_state, model_path.as_posix())
-
-
-def main(dataset_path: pathlib.Path, experiment_path: pathlib.Path):
-    hyperparameters = (
-        custom_yolo_lib.config.hyperparameters.ThreeAnchorsHyperparameters(
-            experiment_name=EXPERIMENT_NAME,
-            model_type=MODEL_TYPE,
-            optimizer_type=OPTIMIZER_TYPE,
-            loss_type=LOSS_TYPE,
-            dataset_type=DATASET_TYPE,
-            scheduler_type=SCHEDULER_TYPE,
-            warmup_epochs=WARMUP_EPOCHS,
-            epochs=EPOCHS,
-            dataset_num_classes=NUM_CLASSES,
-            batch_size=BATCH_SIZE,
-            momentum=MOMENTUM,
-            weight_decay=DECAY,
-            image_size=IMAGE_SIZE,
-            class_loss_gain=CLASS_LOSS_GAIN,
-            objectness_loss_gain=OBJECTNESS_LOSS_GAIN,
-            box_loss_gain=BOX_LOSS_GAIN,
-            objectness_loss_small_map_gain=OBJECTNESS_LOSS_SMALL_MAP_GAIN,
-            objectness_loss_medium_map_gain=OBJECTNESS_LOSS_MEDIUM_MAP_GAIN,
-            objectness_loss_large_map_gain=OBJECTNESS_LOSS_LARGE_MAP_GAIN,
-        )
-    )
-    experiment_path = custom_yolo_lib.experiments.utils.make_experiment_dir(
-        hyperparameters.experiment_name, experiment_path
-    )
-
-    if not torch.cuda.is_available():
-        raise RuntimeError("CUDA is not available. Why bother bro?.")
-    device = torch.device("cuda:0")
-
-    model = custom_yolo_lib.experiments.model_factory.init_model(
-        model_type=hyperparameters.model_type,
-        device=device,
-        num_classes=hyperparameters.dataset_num_classes,
-    )
-
-    optimizer = custom_yolo_lib.experiments.optimizer_factory.init_optimizer(
-        hyperparameters.optimizer_type,
-        model,
-        initial_lr=hyperparameters.learning_rate,
-        momentum=hyperparameters.momentum,
-        weight_decay=hyperparameters.weight_decay,
-    )
-
-    training_loader, validation_loader = (
-        custom_yolo_lib.experiments.dataloaders_factory.init_dataloaders(
-            hyperparameters.dataset_type,
-            dataset_path,
-            num_classes=hyperparameters.dataset_num_classes,
-            image_size=hyperparameters.image_size,
-            batch_size=hyperparameters.batch_size,
-        )
-    )
-
-    steps_per_epoch = len(training_loader)
-
-    scheduler = custom_yolo_lib.experiments.schedulers_factory.init_scheduler(
-        hyperparameters.scheduler_type,
-        optimizer,
-        update_step_size=steps_per_epoch,
-        warmup_steps=steps_per_epoch * hyperparameters.warmup_epochs,
-        max_steps=steps_per_epoch * hyperparameters.epochs,
-        cycles=0.5,
-        min_factor=0.1,
-        last_step=-1,
-    )
-
-    loss_s, loss_m, loss_l = custom_yolo_lib.experiments.loss_factory.init_loss(
-        hyperparameters.loss_type,
-        model,
-        device,
-        expected_image_size=hyperparameters.image_size,
-        num_classes=hyperparameters.dataset_num_classes,
-    )
-
-    session_loop(
-        model,
-        training_loader,
-        validation_loader,
-        optimizer,
-        scheduler,
-        loss_s,
-        loss_m,
-        loss_l,
-        experiment_path,
-        hyperparameters,
-        device,
-    )
-
-
-def parse_args():
-
-    parser = argparse.ArgumentParser(description="Train YOLOv5 model")
-    parser.add_argument(
-        "--dataset_path",
-        type=str,
-        default="/home/manos/custom-yolo/coco_data",
-        help="Path to the dataset directory",
-    )
-    parser.add_argument(
-        "--experiment_path",
-        type=str,
-        # required=True,
-        default="/home/manos/custom-yolo/experiments",
-        help="Path to the experiment directory",
-    )
-
-    return parser.parse_args()
-
-
-if __name__ == "__main__":
-    args = parse_args()
-    dataset_path = pathlib.Path(args.dataset_path)
-    experiment_path = pathlib.Path(args.experiment_path)
-    main(dataset_path, experiment_path)

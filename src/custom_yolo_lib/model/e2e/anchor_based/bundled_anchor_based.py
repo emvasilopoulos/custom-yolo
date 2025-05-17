@@ -7,7 +7,6 @@ from custom_yolo_lib.model.building_blocks.backbones.three_scales import (
 )
 from custom_yolo_lib.model.building_blocks.heads.detections_3_anchors import (
     DetectionHead,
-    DetectionHeadOutput,
     FeatureMapType,
 )
 from custom_yolo_lib.model.building_blocks.necks.concat import NeckConcat, ConcatNeck
