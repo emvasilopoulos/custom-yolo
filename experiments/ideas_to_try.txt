@@ -1,0 +1,6 @@
+1. update IoU method based on epoch
+2. flip left-right, top-bottom
+3. resize (before padding) up to +-10% 
+4. mask image except for the objects, or even certain objects
+5. provide empty images
+6. use mosaic

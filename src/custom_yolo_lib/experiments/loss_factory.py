@@ -141,3 +141,34 @@ def init_loss(
         raise ValueError(f"Unsupported loss type: {loss_type}")
 
     return loss_s, loss_m, loss_l
+
+
+def calculate_three_scale_loss(
+    losses_s: torch.Tensor,
+    losses_m: torch.Tensor,
+    losses_l: torch.Tensor,
+    loss_type: LossType,
+    BOX_LOSS_GAIN: float,
+    OBJECTNESS_LOSS_GAIN: float,
+    OBJECTNESS_LOSS_SMALL_MAP_GAIN: float,
+    OBJECTNESS_LOSS_MEDIUM_MAP_GAIN: float,
+    OBJECTNESS_LOSS_LARGE_MAP_GAIN: float,
+    CLASS_LOSS_GAIN: float,
+):
+    if (
+        loss_type != LossType.THREESCALE_YOLO
+        and loss_type != LossType.THREESCALE_YOLO_ORD
+        and loss_type != LossType.THREESCALE_YOLO_ORD_v3
+    ):
+        raise ValueError(
+            f"calculate_three_scale_loss only supports THREESCALE_YOLO and THREESCALE_YOLO_ORD, but got {loss_type}"
+        )
+    avg_bbox_loss = (losses_s[0] + losses_m[0] + losses_l[0]) * BOX_LOSS_GAIN
+    avg_objectness_loss = (
+        losses_s[1] * OBJECTNESS_LOSS_SMALL_MAP_GAIN
+        + losses_m[1] * OBJECTNESS_LOSS_MEDIUM_MAP_GAIN
+        + losses_l[1] * OBJECTNESS_LOSS_LARGE_MAP_GAIN
+    ) * OBJECTNESS_LOSS_GAIN
+    avg_class_loss = (losses_s[2] + losses_m[2] + losses_l[2]) * CLASS_LOSS_GAIN
+    loss = avg_bbox_loss + avg_objectness_loss + avg_class_loss
+    return (avg_bbox_loss, avg_objectness_loss, avg_class_loss), loss
