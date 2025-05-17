@@ -69,7 +69,7 @@ class TestBoxLoss(unittest.TestCase):
         expected_iou = 0.62
         expected_diou_term = r_squared / c_squared
         expected_diou_loss = 1.0 - expected_iou + expected_diou_term
-        self.assertAlmostEqual(loss, expected_diou_loss.item(), places=2)
+        self.assertAlmostEqual(loss, expected_diou_loss, places=2)
 
     def test_box_loss_ciou(self):
         loss = self._get_box_loss(losses.BoxLoss.IoUType.CIoU, xywh=False)
