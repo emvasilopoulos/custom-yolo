@@ -1,50 +1,21 @@
 import enum
 import torch
 
+import torchvision.ops
+
 import custom_yolo_lib.process.bbox.metrics.iou
 
 
 class FocalLoss(torch.nn.Module):
-    def __init__(
-        self, alpha: float = 0.25, gamma: float = 1.5, reduction: str = "mean"
-    ):
+    def __init__(self, alpha: float = 0.25, gamma: float = 1.5):
         super().__init__()
         self.alpha = alpha
         self.gamma = gamma
-        self.reduction = reduction
 
     def forward(self, logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
-        # BCE with logits for better numerical stability
-        bce_loss = torch.nn.functional.binary_cross_entropy_with_logits(
-            logits, targets, reduction="none"
+        return torchvision.ops.sigmoid_focal_loss(
+            logits, targets, alpha=self.alpha, gamma=self.gamma, reduction="none"
         )
-
-        # Probabilities for the correct class
-        p_t = torch.sigmoid(logits) * targets + (1 - torch.sigmoid(logits)) * (
-            1 - targets
-        )
-
-        # Modulating factor
-        focal_term = (1 - p_t) ** self.gamma
-
-        # Alpha balancing
-        if self.alpha >= 0:
-            alpha_t = self.alpha * targets + (1 - self.alpha) * (1 - targets)
-            focal_loss = alpha_t * focal_term * bce_loss
-        else:
-            focal_loss = focal_term * bce_loss
-
-        # Apply reduction
-        if self.reduction == "mean":
-            return focal_loss.mean()
-        elif self.reduction == "sum":
-            return focal_loss.sum()
-        elif self.reduction == "none":
-            return focal_loss
-        else:
-            raise ValueError(
-                f"Invalid reduction: {self.reduction}. Supported: 'none', 'mean', 'sum'."
-            )
 
 
 class BoxLoss(torch.nn.Module):
@@ -57,7 +28,7 @@ class BoxLoss(torch.nn.Module):
 
     IOU_THRESHOLD = 0.5
 
-    def __init__(self, iou_type: IoUType) -> None:
+    def __init__(self, iou_type: IoUType, xywh: bool = True) -> None:
         """
         NO REDUCTION
         """
@@ -75,6 +46,7 @@ class BoxLoss(torch.nn.Module):
                 f"Invalid IoU type: {iou_type}. Supported types: {list(self.IoUType)}"
             )
         self.__iou = None
+        self.__xywh = xywh
 
     @property
     def iou(self) -> torch.Tensor:
@@ -91,8 +63,19 @@ class BoxLoss(torch.nn.Module):
             predictions (torch.Tensor): Predicted bounding boxes of shape (N, 4).
             targets (torch.Tensor): Target bounding boxes of shape (N, 4).
         Returns:
-            torch.Tensor: Loss value.
+            torch.Tensor: Loss value of shape (N,).
+
+        NOTE on the assertion:
+        Generally, when the number of boxes in predictions and targets are not equal
+        a RuntimeError is raised except for the case when one of predictions or targets
+        has 1 box and the other has N boxes. In that case, broadcasting is applied and
+        an IoU is calculated which is not the one we want.
         """
-        self.__iou = self.iou_fn(predictions, targets).squeeze(1)
+
+        assert predictions.shape[0] == targets.shape[0], (
+            f"Predictions and targets must have the same number of boxes. "
+            f"Got {predictions.shape[0]} and {targets.shape[0]}"
+        )
+        self.__iou = self.iou_fn(predictions, targets, xywh=self.__xywh).squeeze(1)
 
         return 1.0 - self.__iou
