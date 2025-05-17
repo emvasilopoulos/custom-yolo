@@ -46,20 +46,6 @@ OBJECTNESS_LOSS_MEDIUM_MAP_GAIN = 1.0
 OBJECTNESS_LOSS_LARGE_MAP_GAIN = 0.4
 
 
-def calculate_loss(
-    losses_s: torch.Tensor, losses_m: torch.Tensor, losses_l: torch.Tensor
-):
-    avg_bbox_loss = (losses_s[0] + losses_m[0] + losses_l[0]) * BOX_LOSS_GAIN
-    avg_objectness_loss = (
-        losses_s[1] * OBJECTNESS_LOSS_SMALL_MAP_GAIN
-        + losses_m[1] * OBJECTNESS_LOSS_MEDIUM_MAP_GAIN
-        + losses_l[1] * OBJECTNESS_LOSS_LARGE_MAP_GAIN
-    ) * OBJECTNESS_LOSS_GAIN
-    avg_class_loss = (losses_s[2] + losses_m[2] + losses_l[2]) * CLASS_LOSS_GAIN
-    loss = avg_bbox_loss + avg_objectness_loss + avg_class_loss
-    return (avg_bbox_loss, avg_objectness_loss, avg_class_loss), loss
-
-
 def train_one_epoch(
     model: custom_yolo_lib.model.e2e.anchor_based.bundled_anchor_based.YOLOModel,
     training_loader: torch.utils.data.DataLoader,
@@ -71,6 +57,7 @@ def train_one_epoch(
     epoch: int,
     training_step: int,
     experiment_path: pathlib.Path,
+    hyperparameters: custom_yolo_lib.config.hyperparameters.ThreeAnchorsHyperparameters,
     device: torch.device = torch.device("cuda:0"),
 ):
     # TRAINING
@@ -95,8 +82,19 @@ def train_one_epoch(
         _, losses_s = loss_s(predictions_s, targets)
         _, losses_m = loss_m(predictions_m, targets)
         _, losses_l = loss_l(predictions_l, targets)
-        (avg_bbox_loss, avg_objectness_loss, avg_class_loss), loss = calculate_loss(
-            losses_s, losses_m, losses_l
+        (avg_bbox_loss, avg_objectness_loss, avg_class_loss), loss = (
+            custom_yolo_lib.experiments.loss_factory.calculate_three_scale_loss(
+                losses_s,
+                losses_m,
+                losses_l,
+                hyperparameters.loss_type,
+                hyperparameters.box_loss_gain,
+                hyperparameters.objectness_loss_gain,
+                hyperparameters.objectness_loss_small_map_gain,
+                hyperparameters.objectness_loss_medium_map_gain,
+                hyperparameters.objectness_loss_large_map_gain,
+                hyperparameters.class_loss_gain,
+            )
         )
         if torch.isnan(avg_bbox_loss):
             print("avg_bbox_loss is NaN, EXITING...")
@@ -151,6 +149,7 @@ def validate_one_epoch(
     epoch: int,
     validation_step: int,
     experiment_path: pathlib.Path,
+    hyperparameters: custom_yolo_lib.config.hyperparameters.ThreeAnchorsHyperparameters,
     device: torch.device = torch.device("cuda:0"),
 ):
     validation_session_data = {
@@ -179,10 +178,20 @@ def validate_one_epoch(
             _, losses_s = loss_s(predictions_s, targets)
             _, losses_m = loss_m(predictions_m, targets)
             _, losses_l = loss_l(predictions_l, targets)
-            (avg_bbox_loss, avg_objectness_loss, avg_class_loss), loss = calculate_loss(
-                losses_s, losses_m, losses_l
+            (avg_bbox_loss, avg_objectness_loss, avg_class_loss), loss = (
+                custom_yolo_lib.experiments.loss_factory.calculate_three_scale_loss(
+                    losses_s,
+                    losses_m,
+                    losses_l,
+                    hyperparameters.loss_type,
+                    hyperparameters.box_loss_gain,
+                    hyperparameters.objectness_loss_gain,
+                    hyperparameters.objectness_loss_small_map_gain,
+                    hyperparameters.objectness_loss_medium_map_gain,
+                    hyperparameters.objectness_loss_large_map_gain,
+                    hyperparameters.class_loss_gain,
+                )
             )
-
             tqdm_obj.set_description(
                 f"Total: {loss.item():.4f} | BBox: {avg_bbox_loss.item():.4f} | Obj: {avg_objectness_loss.item():.4f} | Class: {avg_class_loss.item():.4f}"
             )
@@ -218,6 +227,7 @@ def session_loop(
     loss_m: custom_yolo_lib.model.e2e.anchor_based.losses.loss.YOLOLossPerFeatureMapV2,
     loss_l: custom_yolo_lib.model.e2e.anchor_based.losses.loss.YOLOLossPerFeatureMapV2,
     experiment_path: pathlib.Path,
+    hyperparameters: custom_yolo_lib.config.hyperparameters.ThreeAnchorsHyperparameters,
     device: torch.device = torch.device("cuda:0"),
 ):
     # Training loop
@@ -242,6 +252,7 @@ def session_loop(
             epoch,
             training_step,
             experiment_path,
+            hyperparameters,
             device,
         )
 
@@ -258,6 +269,7 @@ def session_loop(
             epoch,
             validation_step,
             experiment_path,
+            hyperparameters,
             device,
         )
 
@@ -359,6 +371,7 @@ def main(dataset_path: pathlib.Path, experiment_path: pathlib.Path):
         loss_m,
         loss_l,
         experiment_path,
+        hyperparameters,
         device,
     )
 
