@@ -1,4 +1,3 @@
-import dataclasses
 import enum
 from typing import Dict, List, Optional
 
@@ -67,26 +66,6 @@ For each feature map, we have 3 anchors. Each anchor is represented by a tensor 
 """
 
 
-@dataclasses.dataclass
-class DetectionHeadOutput:
-    anchor1_output: torch.Tensor
-    anchor2_output: torch.Tensor
-    anchor3_output: torch.Tensor
-
-    def __iter__(self) -> iter:
-        return iter((self.anchor1_output, self.anchor2_output, self.anchor3_output))
-
-    def to_tensor(self) -> torch.Tensor:
-        return torch.cat(
-            (
-                self.anchor1_output,
-                self.anchor2_output,
-                self.anchor3_output,
-            ),
-            dim=1,
-        )
-
-
 class DetectionHead(torch.nn.Module):
     def __init__(
         self, in_channels: int, num_classes: int, feature_map_type: FeatureMapType
@@ -150,35 +129,6 @@ class DetectionHead(torch.nn.Module):
         return decode_output(
             out, self._multiplier, anchors=self.anchors, grids=grids
         )  # (batch_size, num_anchors, feats_per_anchor, grid_size_h, grid_size_w)
-
-    def train_forward(
-        self, x: torch.Tensor, training: bool
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        y = self.conv(x)
-        batch_size, out_feats, grid_size_h, grid_size_w = y.shape
-        y = y.view(
-            batch_size,
-            self.num_anchors,
-            self.feats_per_anchor,
-            grid_size_h,
-            grid_size_w,
-        )
-
-        if training:
-            return DetectionHeadOutput(
-                y[:, 0], y[:, 1], y[:, 2]
-            )  # we want values between 0 and 1 for training???
-
-        y = torch.sigmoid(y)
-        # Create grid tensors for x and y coordinates
-        grid_size_h = y.shape[3]
-        grid_size_w = y.shape[4]
-        grids = self.meshgrids.get(f"{grid_size_h}_{grid_size_w}")
-        if grids is None:
-            grids = _make_grids(grid_size_h, grid_size_w, device=y.device)
-            self.meshgrids[f"{grid_size_h}_{grid_size_w}"] = grids
-        y = decode_output(y, self._multiplier, grids)
-        return DetectionHeadOutput(y[:, 0], y[:, 1], y[:, 2])
 
 
 def _make_grids(

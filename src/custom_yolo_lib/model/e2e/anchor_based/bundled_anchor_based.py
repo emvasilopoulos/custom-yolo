@@ -66,14 +66,6 @@ class YOLOModel(torch.nn.Module):
             dim=3,
         )  # (batch_size, 3, 85, grid_x1*grid_y1 + grid_x2*grid_y2 + grid_x3*grid_y3)
 
-    def train_forward(self, x: torch.Tensor) -> List[DetectionHeadOutput]:
-        small, medium, large = self.backbone(x)
-        small, medium, large = self.neck(small, medium, large)
-        out_small = self.detect_small.train_forward(small, self.__training)
-        out_medium = self.detect_medium.train_forward(medium, self.__training)
-        out_large = self.detect_large.train_forward(large, self.__training)
-        return out_small, out_medium, out_large
-
     def train_forward2(
         self, x: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -135,14 +127,6 @@ class YOLOModel_FAILURE(torch.nn.Module):
             ],
             dim=3,
         )  # (batch_size, 3, 85, grid_x1*grid_y1 + grid_x2*grid_y2 + grid_x3*grid_y3)
-
-    def train_forward(self, x: torch.Tensor) -> List[DetectionHeadOutput]:
-        small, medium, large = self.backbone(x)
-        small, medium, large = self.neck(small, medium, large)
-        out_small = self.detect_small.train_forward(small, self.__training)
-        out_medium = self.detect_medium.train_forward(medium, self.__training)
-        out_large = self.detect_large.train_forward(large, self.__training)
-        return out_small, out_medium, out_large
 
     def train_forward2(
         self, x: torch.Tensor
