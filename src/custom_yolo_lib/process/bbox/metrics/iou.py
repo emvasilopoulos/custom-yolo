@@ -4,6 +4,11 @@ import torch
 
 import custom_yolo_lib.process.bbox.metrics.utils
 
+"""
+IoU, GIoU, DIoU, CIoU explained:
+https://medium.com/@abhishekjainindore24/giou-ciou-and-diou-variants-of-iou-and-how-they-are-better-compared-to-iou-4610a015643a
+"""
+
 
 def bbox_iou(
     box1: torch.Tensor, box2: torch.Tensor, xywh: bool = True, eps: float = 1e-7
@@ -16,10 +21,9 @@ def bbox_iou(
     )
     inter = custom_yolo_lib.process.bbox.metrics.utils.intersection(
         b1_x1, b1_y1, b1_x2, b1_y2, b2_x1, b2_y1, b2_x2, b2_y2
-    )  # Intersection area
-    union = custom_yolo_lib.process.bbox.metrics.utils.union(
-        w1, h1, w2, h2, inter, eps
-    )  # Union Area
+    )
+
+    union = custom_yolo_lib.process.bbox.metrics.utils.union(w1, h1, w2, h2, inter, eps)
     return inter / union
 
 
