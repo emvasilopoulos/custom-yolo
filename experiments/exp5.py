@@ -15,6 +15,7 @@ import custom_yolo_lib.image_size
 import custom_yolo_lib.model.e2e.anchor_based.bundled_anchor_based
 import custom_yolo_lib.model.e2e.anchor_based.losses.loss_v3
 import custom_yolo_lib.training.lr_scheduler
+import custom_yolo_lib.config.hyperparameters
 
 torch.manual_seed(42)
 
@@ -272,8 +273,31 @@ def session_loop(
 
 
 def main(dataset_path: pathlib.Path, experiment_path: pathlib.Path):
+    hyperparameters = (
+        custom_yolo_lib.config.hyperparameters.ThreeAnchorsHyperparameters(
+            experiment_name=EXPERIMENT_NAME,
+            model_type=MODEL_TYPE,
+            optimizer_type=OPTIMIZER_TYPE,
+            loss_type=LOSS_TYPE,
+            dataset_type=DATASET_TYPE,
+            scheduler_type=SCHEDULER_TYPE,
+            warmup_epochs=WARMUP_EPOCHS,
+            epochs=EPOCHS,
+            dataset_num_classes=NUM_CLASSES,
+            batch_size=BATCH_SIZE,
+            momentum=MOMENTUM,
+            weight_decay=DECAY,
+            image_size=IMAGE_SIZE,
+            class_loss_gain=CLASS_LOSS_GAIN,
+            objectness_loss_gain=OBJECTNESS_LOSS_GAIN,
+            box_loss_gain=BOX_LOSS_GAIN,
+            objectness_loss_small_map_gain=OBJECTNESS_LOSS_SMALL_MAP_GAIN,
+            objectness_loss_medium_map_gain=OBJECTNESS_LOSS_MEDIUM_MAP_GAIN,
+            objectness_loss_large_map_gain=OBJECTNESS_LOSS_LARGE_MAP_GAIN,
+        )
+    )
     experiment_path = custom_yolo_lib.experiments.utils.make_experiment_dir(
-        EXPERIMENT_NAME, experiment_path
+        hyperparameters.experiment_name, experiment_path
     )
 
     if not torch.cuda.is_available():
@@ -281,46 +305,48 @@ def main(dataset_path: pathlib.Path, experiment_path: pathlib.Path):
     device = torch.device("cuda:0")
 
     model = custom_yolo_lib.experiments.model_factory.init_model(
-        model_type=MODEL_TYPE, device=device, num_classes=NUM_CLASSES
+        model_type=hyperparameters.model_type,
+        device=device,
+        num_classes=hyperparameters.dataset_num_classes,
     )
 
     optimizer = custom_yolo_lib.experiments.optimizer_factory.init_optimizer(
-        OPTIMIZER_TYPE,
+        hyperparameters.optimizer_type,
         model,
-        initial_lr=LR,
-        momentum=MOMENTUM,
-        weight_decay=DECAY,
+        initial_lr=hyperparameters.learning_rate,
+        momentum=hyperparameters.momentum,
+        weight_decay=hyperparameters.weight_decay,
     )
 
     training_loader, validation_loader = (
         custom_yolo_lib.experiments.dataloaders_factory.init_dataloaders(
-            DATASET_TYPE,
+            hyperparameters.dataset_type,
             dataset_path,
-            num_classes=NUM_CLASSES,
-            image_size=IMAGE_SIZE,
-            batch_size=BATCH_SIZE,
+            num_classes=hyperparameters.dataset_num_classes,
+            image_size=hyperparameters.image_size,
+            batch_size=hyperparameters.batch_size,
         )
     )
 
     steps_per_epoch = len(training_loader)
 
     scheduler = custom_yolo_lib.experiments.schedulers_factory.init_scheduler(
-        SCHEDULER_TYPE,
+        hyperparameters.scheduler_type,
         optimizer,
         update_step_size=steps_per_epoch,
-        warmup_steps=steps_per_epoch * WARMUP_EPOCHS,
-        max_steps=steps_per_epoch * EPOCHS,
+        warmup_steps=steps_per_epoch * hyperparameters.warmup_epochs,
+        max_steps=steps_per_epoch * hyperparameters.epochs,
         cycles=0.5,
         min_factor=0.1,
         last_step=-1,
     )
 
     loss_s, loss_m, loss_l = custom_yolo_lib.experiments.loss_factory.init_loss(
-        LOSS_TYPE,
+        hyperparameters.loss_type,
         model,
         device,
-        expected_image_size=IMAGE_SIZE,
-        num_classes=NUM_CLASSES,
+        expected_image_size=hyperparameters.image_size,
+        num_classes=hyperparameters.dataset_num_classes,
     )
 
     session_loop(
