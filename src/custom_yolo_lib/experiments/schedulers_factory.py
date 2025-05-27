@@ -14,6 +14,8 @@ class SchedulerType(enum.Enum):
     STEP = enum.auto()
     WARMUP_STEP = enum.auto()
     WARMUP_COSINE = enum.auto()
+    WARMUP_COSINE_2_CYCLES = enum.auto()
+    WARMUP_COSINE_10_CYCLES = enum.auto()
     CUSTOM = enum.auto()
 
 
@@ -102,6 +104,32 @@ def init_scheduler(
             warmup_steps=warmup_steps,
             max_steps=max_steps,
             cycles=cycles,
+            min_factor=min_factor,
+            last_step=last_step,
+        )
+    elif scheduler_type == SchedulerType.WARMUP_COSINE_2_CYCLES:
+        if update_step_size != _DEFAULT_STEP_SIZE:
+            logging.warning(
+                f"update_step_size with value {update_step_size} is ignored for WARMUP_COSINE scheduler"
+            )
+        return custom_yolo_lib.training.lr_scheduler.WarmupCosineScheduler(
+            optimizer=optimizer,
+            warmup_steps=warmup_steps,
+            max_steps=max_steps,
+            cycles=2,
+            min_factor=min_factor,
+            last_step=last_step,
+        )
+    elif scheduler_type == SchedulerType.WARMUP_COSINE_10_CYCLES:  # BAD
+        if update_step_size != _DEFAULT_STEP_SIZE:
+            logging.warning(
+                f"update_step_size with value {update_step_size} is ignored for WARMUP_COSINE scheduler"
+            )
+        return custom_yolo_lib.training.lr_scheduler.WarmupCosineScheduler(
+            optimizer=optimizer,
+            warmup_steps=warmup_steps,
+            max_steps=max_steps,
+            cycles=2,
             min_factor=min_factor,
             last_step=last_step,
         )
