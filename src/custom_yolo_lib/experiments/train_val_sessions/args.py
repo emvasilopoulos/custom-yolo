@@ -12,7 +12,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--experiment_path",
         type=str,
-        default=__file__.replace(".py", ""),
+        default=None,
         help="Path to the experiment directory",
     )
 
