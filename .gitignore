@@ -5,6 +5,7 @@ coco_data/
 .DS_Store
 experiments/*/exp*/
 experiments/*/debug*/
+experiments/debug*/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
