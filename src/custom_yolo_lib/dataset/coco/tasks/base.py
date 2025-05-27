@@ -1,7 +1,7 @@
 import abc
 import pathlib
 import random
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 import enum
 
 import torch
@@ -19,6 +19,7 @@ import custom_yolo_lib.process.bbox.translate
 import custom_yolo_lib.process.image
 import custom_yolo_lib.process.image.resize.fixed_ratio
 import custom_yolo_lib.process.image.e2e
+import custom_yolo_lib.dataset.augmentation_types
 
 MAX_OBJECTS_PER_IMAGE = 100
 
@@ -66,7 +67,10 @@ class BaseCOCODatasetGrouped(torch.utils.data.Dataset):
         e2e_preprocessor: custom_yolo_lib.process.image.e2e.E2EPreprocessor,
         classes: List[str] = None,
         dtype: torch.dtype = torch.float32,
-        is_sama: bool = True,  # the oriinal is CRAP
+        is_sama: bool = True,  # the original is CRAP
+        augmentations: Optional[
+            List[custom_yolo_lib.dataset.augmentation_types.AugmentationType]
+        ] = None,
     ):
         """
         Args:
@@ -92,12 +96,6 @@ class BaseCOCODatasetGrouped(torch.utils.data.Dataset):
             self.desired_classes = [str(i + 1) for i in range(80)]
 
         self.e2e_preprocessor = e2e_preprocessor
-        # self.input_pipeline = custom_yolo_lib.process.image.pipeline.ImagePipeline(
-        #     dtype_converter=custom_yolo_lib.process.tensor.TensorDtypeConverter(
-        #         torch.float32
-        #     ),
-        #     normalize=custom_yolo_lib.process.normalize.SimpleImageNormalizer(),
-        # )
 
         annotations_path = (
             annotations_dir
@@ -112,6 +110,21 @@ class BaseCOCODatasetGrouped(torch.utils.data.Dataset):
         )
 
         self._read_annotations(annotations_path)
+        self.augmentations = augmentations
+        if self.augmentations is None:
+            print(
+                "Using default augmentations --> [FLIP_X, FLIP_Y, SLIGHT_COLOR_JITTER, SLIGHT_RESIZE]"
+            )
+            self.augmentations = [
+                custom_yolo_lib.dataset.augmentation_types.AugmentationType.FLIP_X,
+                custom_yolo_lib.dataset.augmentation_types.AugmentationType.FLIP_Y,
+                custom_yolo_lib.dataset.augmentation_types.AugmentationType.SLIGHT_COLOR_JITTER,
+                custom_yolo_lib.dataset.augmentation_types.AugmentationType.SLIGHT_RESIZE,
+            ]
+        self._do_slight_resize = (
+            custom_yolo_lib.dataset.augmentation_types.AugmentationType.SLIGHT_RESIZE
+            in self.augmentations
+        )
 
     def _read_image(self, image_path: pathlib.Path) -> torch.Tensor:
         img_tensor = custom_yolo_lib.io.read.read_image_torchvision(image_path)
@@ -221,9 +234,21 @@ class BaseCOCODatasetGrouped(torch.utils.data.Dataset):
         padding_percent = self._random_percentage()
         pad_value = random.randint(0, 255)
 
+        img_tensor = self._read_image(image_path)
+        if self._do_slight_resize and random.random() > 0.5:
+            _, h, w = img_tensor.shape
+            if h > w:
+                new_h = h
+                new_w = int(w * random.uniform(0.8, 1.2))
+            else:
+                new_h = int(h * random.uniform(0.8, 1.2))
+                new_w = w
+            img_tensor = custom_yolo_lib.process.image.resize.resize_image(
+                img_tensor, new_h, new_w
+            )
         standard_resized_img_tensor, resize_fixed_ratio_components = (
             self.e2e_preprocessor(
-                self._read_image(image_path),
+                img_tensor,
                 padding_percent=padding_percent,
                 pad_value=pad_value,
             )
@@ -247,6 +272,39 @@ class BaseCOCODatasetGrouped(torch.utils.data.Dataset):
             objects_tensor = torch.stack(
                 [obj.to_tensor() for obj in translated_objects]
             )
+
+        for augmentation in self.augmentations:
+            if (
+                augmentation
+                == custom_yolo_lib.dataset.augmentation_types.AugmentationType.FLIP_X
+                and random.random() > 0.5
+            ):
+                standard_resized_img_tensor = torch.flip(
+                    standard_resized_img_tensor, dims=[2]
+                )
+                for i in range(objects_tensor.shape[0]):
+                    objects_tensor[i, 0] = 1 - objects_tensor[i, 0]
+            elif (
+                augmentation
+                == custom_yolo_lib.dataset.augmentation_types.AugmentationType.FLIP_Y
+                and random.random() > 0.5
+            ):
+                standard_resized_img_tensor = torch.flip(
+                    standard_resized_img_tensor, dims=[1]
+                )
+                for i in range(objects_tensor.shape[0]):
+                    objects_tensor[i, 1] = 1 - objects_tensor[i, 1]
+            elif (
+                augmentation
+                == custom_yolo_lib.dataset.augmentation_types.AugmentationType.SLIGHT_COLOR_JITTER
+                and random.random() > 0.5
+            ):
+                pass
+                # standard_resized_img_tensor = (
+                #     custom_yolo_lib.process.image.color_jitter(
+                #         standard_resized_img_tensor
+                #     )
+                # )
 
         return {
             COCODatasetSampleKeys.IMAGE_TENSOR: standard_resized_img_tensor,
