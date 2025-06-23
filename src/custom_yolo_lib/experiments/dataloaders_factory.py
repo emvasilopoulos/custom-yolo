@@ -19,6 +19,7 @@ class DatasetType(enum.Enum):
     COCO_SAMA = enum.auto()
     COCO_SAMA_AUGMENT = enum.auto()
     COCO_ORIGINAL_THREE_FEATURE_MAPS = enum.auto()
+    COCO_SAMA_AUGMENT_CUTMIX = enum.auto()
 
 
 def init_dataloaders(
@@ -53,6 +54,14 @@ def init_dataloaders(
             custom_yolo_lib.dataset.augmentation_types.AugmentationType.FLIP_X,
             custom_yolo_lib.dataset.augmentation_types.AugmentationType.FLIP_Y,
             custom_yolo_lib.dataset.augmentation_types.AugmentationType.SLIGHT_RESIZE,
+        ]
+    elif dataset_type == DatasetType.COCO_SAMA_AUGMENT_CUTMIX:
+        is_sama = True
+        dataloader = custom_yolo_lib.dataset.coco.tasks.loader.COCODataLoader
+        augmentations = [
+            custom_yolo_lib.dataset.augmentation_types.AugmentationType.FLIP_X,
+            custom_yolo_lib.dataset.augmentation_types.AugmentationType.FLIP_Y,
+            custom_yolo_lib.dataset.augmentation_types.AugmentationType.MOSAIC,
         ]
     train_dataset = custom_yolo_lib.dataset.coco.tasks.instances.COCOInstances2017(
         dataset_path,

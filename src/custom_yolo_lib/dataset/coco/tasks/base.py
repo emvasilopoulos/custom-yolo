@@ -121,6 +121,11 @@ class BaseCOCODatasetGrouped(torch.utils.data.Dataset):
                 custom_yolo_lib.dataset.augmentation_types.AugmentationType.SLIGHT_COLOR_JITTER,
                 custom_yolo_lib.dataset.augmentation_types.AugmentationType.SLIGHT_RESIZE,
             ]
+        if custom_yolo_lib.dataset.augmentation_types.AugmentationType.MOSAIC in self.augmentations:
+            raise NotImplementedError(
+                "Mosaic augmentation is not implemented in this dataset."
+            )
+        
         self._do_slight_resize = (
             custom_yolo_lib.dataset.augmentation_types.AugmentationType.SLIGHT_RESIZE
             in self.augmentations

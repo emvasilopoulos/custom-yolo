@@ -15,4 +15,5 @@ class AugmentationType(enum.Enum):
     MASK_FOREGROUND = enum.auto()
     CUTOUT = enum.auto()
     CUTMIX = enum.auto()
+    MOSAIC = enum.auto()
     # MIXUP = enum.auto() # I don't like it
