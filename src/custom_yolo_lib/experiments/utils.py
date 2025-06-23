@@ -17,13 +17,11 @@ def make_experiment_dir(
         pathlib.Path: Path to the experiment directory.
     """
     experiment_dir = base_dir / experiment_name
-    if not experiment_dir.exists():
-        experiment_dir.mkdir(parents=True, exist_ok=True)
-    else:
-        # Create a new directory with a counter if the directory already exists
-        counter = 1
-        while (experiment_dir / f"{experiment_name}_{counter}").exists():
-            counter += 1
-        experiment_dir = experiment_dir / f"{experiment_name}_{counter}"
-        experiment_dir.mkdir(parents=True, exist_ok=False)
+    experiment_dir.mkdir(parents=True, exist_ok=True)
+    # Create a new directory with a counter if the directory already exists
+    counter = 1
+    while (experiment_dir / f"{experiment_name}_{counter}").exists():
+        counter += 1
+    experiment_dir = experiment_dir / f"{experiment_name}_{counter}"
+    experiment_dir.mkdir(parents=True, exist_ok=False)
     return experiment_dir

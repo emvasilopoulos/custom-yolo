@@ -3,7 +3,7 @@ import collections
 import logging
 import math
 import random
-from typing import List
+from typing import Dict, List
 
 import numpy as np
 import torch
@@ -220,9 +220,6 @@ class WarmupCosineScheduler(torch.optim.lr_scheduler.LRScheduler):
 
         super().__init__(optimizer, last_step)
 
-    # ---------------------------------------------------------------------
-    # Private helpers
-    # ---------------------------------------------------------------------
     def _get_warmup_factor(self, step: int) -> float:
         """Return LR factor for a warm-up step (0 ≤ step < warmup_steps)."""
         return (step + 1) / float(self.warmup_steps)
@@ -239,9 +236,6 @@ class WarmupCosineScheduler(torch.optim.lr_scheduler.LRScheduler):
         # Scale to [min_factor, 1]
         return self.min_factor + (1.0 - self.min_factor) * cosine_decay
 
-    # ------------------------------------------------------------------
-    # Required override from _LRScheduler
-    # ------------------------------------------------------------------
     def get_lr(self) -> List[float]:  # noqa: D401  # (Returns a list, not a rate)
         current_step: int = (
             self.last_epoch
@@ -252,11 +246,7 @@ class WarmupCosineScheduler(torch.optim.lr_scheduler.LRScheduler):
             factor: float = self._get_cosine_factor(current_step)
         return [base_lr * factor for base_lr in self.base_lrs]
 
-    # ------------------------------------------------------------------
-    # Convenience utilities
-    # ------------------------------------------------------------------
-    def state_dict(self) -> dict[str, float]:  # type: ignore[override]
-        """Return the scheduler state for checkpointing."""
+    def state_dict(self) -> Dict[str, float]:
         return {
             "last_step": self.last_epoch,
             "warmup_steps": self.warmup_steps,
@@ -265,7 +255,7 @@ class WarmupCosineScheduler(torch.optim.lr_scheduler.LRScheduler):
             "min_factor": self.min_factor,
         }
 
-    def load_state_dict(self, state_dict: dict[str, float]) -> None:  # type: ignore[override]
+    def load_state_dict(self, state_dict: Dict[str, float]) -> None:
         """Load the scheduler state (compat w/ :py:meth:`state_dict`)."""
         self.last_epoch = state_dict["last_step"]
         self.warmup_steps = int(state_dict["warmup_steps"])

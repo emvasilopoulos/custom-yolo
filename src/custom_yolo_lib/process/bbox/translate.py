@@ -6,6 +6,58 @@ import custom_yolo_lib.process.image.pad
 import custom_yolo_lib.process.image.resize.fixed_ratio
 
 
+def flip_bbox_y(
+    bbox: custom_yolo_lib.process.bbox.Bbox,
+) -> custom_yolo_lib.process.bbox.Bbox:
+    """
+    Flips the bounding box vertically.
+
+    Args:
+        bbox (custom_yolo_lib.process.bbox.Bbox): The bounding box to flip.
+        image_size (custom_yolo_lib.image_size.ImageSize): The size of the image.
+
+    Returns:
+        custom_yolo_lib.process.bbox.Bbox: The flipped bounding box.
+    """
+    if bbox.is_normalized:
+        return custom_yolo_lib.process.bbox.Bbox(
+            x=bbox.x,
+            y=1 - bbox.y,
+            w=bbox.w,
+            h=bbox.h,
+            is_normalized=True,
+            is_top_left=bbox.is_top_left,
+        )
+    else:
+        raise NotImplementedError("Only normalized bounding boxes are supported")
+
+
+def flip_bbox_x(
+    bbox: custom_yolo_lib.process.bbox.Bbox,
+) -> custom_yolo_lib.process.bbox.Bbox:
+    """
+    Flips the bounding box horizontally.
+
+    Args:
+        bbox (custom_yolo_lib.process.bbox.Bbox): The bounding box to flip.
+        image_size (custom_yolo_lib.image_size.ImageSize): The size of the image.
+
+    Returns:
+        custom_yolo_lib.process.bbox.Bbox: The flipped bounding box.
+    """
+    if bbox.is_normalized:
+        return custom_yolo_lib.process.bbox.Bbox(
+            x=1 - bbox.x,
+            y=bbox.y,
+            w=bbox.w,
+            h=bbox.h,
+            is_normalized=True,
+            is_top_left=bbox.is_top_left,
+        )
+    else:
+        raise NotImplementedError("Only normalized bounding boxes are supported")
+
+
 def translate_bbox_to_resized_image(
     bbox: custom_yolo_lib.process.bbox.Bbox,
     resize_components: custom_yolo_lib.process.image.resize.ResizeImageSize,

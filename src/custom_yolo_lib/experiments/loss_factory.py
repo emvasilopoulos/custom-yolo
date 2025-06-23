@@ -1,4 +1,5 @@
 import enum
+from typing import Type
 
 import torch
 
@@ -6,6 +7,7 @@ import custom_yolo_lib.model.e2e.anchor_based.bundled_anchor_based
 import custom_yolo_lib.model.e2e.anchor_based.training_utils
 import custom_yolo_lib.image_size
 import custom_yolo_lib.model.e2e.anchor_based.losses.loss
+import custom_yolo_lib.model.e2e.anchor_based.losses.base_v3
 import custom_yolo_lib.model.e2e.anchor_based.losses.loss_v3
 
 
@@ -13,6 +15,7 @@ class LossType(enum.Enum):
     THREESCALE_YOLO = enum.auto()
     THREESCALE_YOLO_ORD = enum.auto()
     THREESCALE_YOLO_ORD_v3 = enum.auto()
+    THREESCALE_YOLO_ORD_v3_GAUSSIAN_RADIAL_DECAY = enum.auto()
 
 
 def _init_v2(
@@ -58,31 +61,28 @@ def _init_v3(
     small_map_anchors: torch.Tensor,
     medium_map_anchors: torch.Tensor,
     large_map_anchors: torch.Tensor,
+    loss_v3_class: Type[
+        custom_yolo_lib.model.e2e.anchor_based.losses.base_v3.BaseYOLOLossPerFeatureMapV3
+    ] = None,
 ):
 
-    loss_s = (
-        custom_yolo_lib.model.e2e.anchor_based.losses.loss_v3.YOLOLossPerFeatureMapV3(
-            num_classes=num_classes,
-            feature_map_anchors=small_map_anchors,
-            grid_size_h=predictions_s.shape[3],
-            grid_size_w=predictions_s.shape[4],
-        )
+    loss_s = loss_v3_class(
+        num_classes=num_classes,
+        feature_map_anchors=small_map_anchors,
+        grid_size_h=predictions_s.shape[3],
+        grid_size_w=predictions_s.shape[4],
     )
-    loss_m = (
-        custom_yolo_lib.model.e2e.anchor_based.losses.loss_v3.YOLOLossPerFeatureMapV3(
-            num_classes=num_classes,
-            feature_map_anchors=medium_map_anchors,
-            grid_size_h=predictions_m.shape[3],
-            grid_size_w=predictions_m.shape[4],
-        )
+    loss_m = loss_v3_class(
+        num_classes=num_classes,
+        feature_map_anchors=medium_map_anchors,
+        grid_size_h=predictions_m.shape[3],
+        grid_size_w=predictions_m.shape[4],
     )
-    loss_l = (
-        custom_yolo_lib.model.e2e.anchor_based.losses.loss_v3.YOLOLossPerFeatureMapV3(
-            num_classes=num_classes,
-            feature_map_anchors=large_map_anchors,
-            grid_size_h=predictions_l.shape[3],
-            grid_size_w=predictions_l.shape[4],
-        )
+    loss_l = loss_v3_class(
+        num_classes=num_classes,
+        feature_map_anchors=large_map_anchors,
+        grid_size_h=predictions_l.shape[3],
+        grid_size_w=predictions_l.shape[4],
     )
     return loss_s, loss_m, loss_l
 
@@ -136,6 +136,18 @@ def init_loss(
             small_map_anchors,
             medium_map_anchors,
             large_map_anchors,
+            custom_yolo_lib.model.e2e.anchor_based.losses.loss_v3.YOLOLossPerFeatureMapV3,
+        )
+    elif loss_type == LossType.THREESCALE_YOLO_ORD_v3_GAUSSIAN_RADIAL_DECAY:
+        loss_s, loss_m, loss_l = _init_v3(
+            predictions_s,
+            predictions_m,
+            predictions_l,
+            num_classes,
+            small_map_anchors,
+            medium_map_anchors,
+            large_map_anchors,
+            custom_yolo_lib.model.e2e.anchor_based.losses.loss_v3.YOLOLossPerFeatureMapV3GaussianRadialDecay,
         )
     else:
         raise ValueError(f"Unsupported loss type: {loss_type}")
@@ -159,6 +171,7 @@ def calculate_three_scale_loss(
         loss_type != LossType.THREESCALE_YOLO
         and loss_type != LossType.THREESCALE_YOLO_ORD
         and loss_type != LossType.THREESCALE_YOLO_ORD_v3
+        and loss_type != LossType.THREESCALE_YOLO_ORD_v3_GAUSSIAN_RADIAL_DECAY
     ):
         raise ValueError(
             f"calculate_three_scale_loss only supports THREESCALE_YOLO and THREESCALE_YOLO_ORD, but got {loss_type}"
