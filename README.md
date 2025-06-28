@@ -1,6 +1,6 @@
-# custom-yolo
+# Custom YOLO
 Building a YOLO detector from scratch. Current implementation can be trained on COCO basic data augmentation techniques, not including Cutmix and Mixup. I don't intend to implement colour-based augmentation techniques.
-The one and only implemented model is anchor-based. Inspired by YOLOv3, borrowing techniques from YOLOv4 (Grid Sensitive)[https://paperswithcode.com/method/grid-sensitive] and reverse engineering YOLOv5.
+The one and only implemented model is anchor-based. Inspired by YOLOv3, borrowing techniques from YOLOv4 [Grid Sensitive](https://paperswithcode.com/method/grid-sensitive) and reverse engineering YOLOv5.
 
 ## Note
 In the code "v3" does not imply YOLOv3, but rather an internal versioning "system".
