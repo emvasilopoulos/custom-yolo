@@ -13,3 +13,8 @@ Experimenting with radial decay initially in objectness scores and later will se
 Joseph Redmon, Ali Farhadi (YOLOv2 & YOLOv3)
 Alexey Bochkovskiy, Chien-Yao Wang, Hong-Yuan Mark Liao (YOLOv4)
 Glenn Jocher & Ultralytics team (YOLOv5) On one hand the code is hard to understand in parts with PyTorch operations (feels magic). On the other, the repos are an advanced course to deep learning with PyTorch. 
+
+# TODOs
+1. when converting from original COCO annotations to this repo's format create a standardized naming
+  - Issue in annotations name and the expected name from class dataset.coco.tasks.base.BaseCOCODatasetGrouped
+2. Create new dataset COCO Units, i.e. crop each individual object into a separate image with the corresponding associated label
